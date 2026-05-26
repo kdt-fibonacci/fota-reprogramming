@@ -102,7 +102,7 @@
  *
  * PduRTxPduId:
  *   전체 TP N-SDU 송신 완료/실패를 PduR로 알릴 때 사용하는
- *   PduR 기준 Tx PDU handle.
+ *   PduR-facing Tx confirmation PDU handle.
  */
 typedef struct
 {
@@ -129,7 +129,7 @@ typedef struct
  *
  * PduRRxPduId:
  *   전체 TP N-SDU 수신 완료/실패를 PduR로 알릴 때 사용하는
- *   PduR 기준 Rx PDU handle.
+ *   PduR-facing Rx PDU handle.
  *
  * RxBufferSize:
  *   재조립에 사용할 수신 buffer 크기.

@@ -4,7 +4,7 @@
 
 #include "PduR_Cfg.h"
 
-#include "Dcm_Cfg.h"
+#include "DoIP_Cfg.h"
 #include "CanTp_Cfg.h"
 
 /*********************************************************************************************************************/
@@ -17,22 +17,21 @@ const PduR_RoutingPathConfigType
     /*
      * Route 0
      *
-     * Gateway → CanTp → PduR → Dcm
+     * Tester -> DoIP -> PduR -> CanTp -> Target ECU
      *
-     * CanTp가 Gateway에서 온 UDS Request를 모두 수신하면
-     * PduR_CanTpRxIndication()을 호출한다.
+     * DoIP는 Diagnostic Message의 TargetAddress를 보고
+     * DOIP_RXPDU_DIAG_REQ_TO_CANTP를 선택한다.
      *
-     * PduR은 CanTpRxNsduId를 DcmRxPduId로 변환하여
-     * Dcm_RxIndication()을 호출한다.
+     * PduR은 DoIPRxPduId를 기준으로 CanTpTxNsduId로 변환한다.
      */
     {
-        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TO_DCM_REMOTE_TO_LOCAL,
+        .PduRRoutingPathId = PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_TARGET,
 
-        .SourceModule      = PDUR_MODULE_CANTP,
-        .SourcePduId       = CANTP_RXNSDU_REMOTE_TO_LOCAL,
+        .SourceModule      = PDUR_MODULE_DOIPTP,
+        .SourcePduId       = DOIP_RXPDU_DIAG_REQ_TO_CANTP,
 
-        .DestModule        = PDUR_MODULE_DCM,
-        .DestPduId         = DCM_RXPDU_DIAG_REQ,
+        .DestModule        = PDUR_MODULE_CANTP,
+        .DestPduId         = CANTP_TXNSDU_LOCAL_TO_REMOTE,
 
         .RoutingEvent      = PDUR_EVENT_RX_INDICATION
     },
@@ -40,46 +39,22 @@ const PduR_RoutingPathConfigType
     /*
      * Route 1
      *
-     * Dcm → PduR → CanTp → Gateway
+     * Target ECU -> CanTp -> PduR -> DoIP -> Tester
      *
-     * Dcm이 UDS Response 전송을 요청하면
-     * PduR_DcmTransmit()을 호출한다.
+     * CanTp는 Target ECU의 UDS Response를 재조립한 뒤
+     * PduR-facing RxPduId 기준으로 PduR에 전달한다.
      *
-     * PduR은 DcmTxPduId를 CanTpTxNsduId로 변환하여
-     * CanTp_Transmit()을 호출한다.
+     * PduR은 CanTp가 보고한 PduR-facing RxPduId를 DoIPTxPduId로 변환한다.
      */
     {
-        .PduRRoutingPathId = PDUR_ROUTE_DCM_TO_CANTP_LOCAL_TO_REMOTE,
-
-        .SourceModule      = PDUR_MODULE_DCM,
-        .SourcePduId       = DCM_TXPDU_DIAG_RES,
-
-        .DestModule        = PDUR_MODULE_CANTP,
-        .DestPduId         = CANTP_TXNSDU_LOCAL_TO_REMOTE,
-
-        .RoutingEvent      = PDUR_EVENT_TRANSMIT
-    },
-
-    /*
-     * Route 2
-     *
-     * CanTp → PduR → Dcm
-     *
-     * CanTp가 UDS Response 송신 완료/실패를 알리면
-     * PduR_CanTpTxConfirmation()을 호출한다.
-     *
-     * PduR은 CanTpTxNsduId를 DcmTxPduId로 변환하여
-     * Dcm_TxConfirmation()을 호출한다.
-     */
-    {
-        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TXCONF_TO_DCM_LOCAL_TO_REMOTE,
+        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TO_DOIP_TARGET_TO_TESTER,
 
         .SourceModule      = PDUR_MODULE_CANTP,
-        .SourcePduId       = CANTP_TXNSDU_LOCAL_TO_REMOTE,
+        .SourcePduId       = PDUR_RXPDU_CANTP_TARGET_TO_TESTER,
 
-        .DestModule        = PDUR_MODULE_DCM,
-        .DestPduId         = DCM_TXPDU_DIAG_RES,
+        .DestModule        = PDUR_MODULE_DOIPTP,
+        .DestPduId         = DOIP_TXPDU_DIAG_RES_FROM_CANTP,
 
-        .RoutingEvent      = PDUR_EVENT_TX_CONFIRMATION
+        .RoutingEvent      = PDUR_EVENT_RX_INDICATION
     }
 };

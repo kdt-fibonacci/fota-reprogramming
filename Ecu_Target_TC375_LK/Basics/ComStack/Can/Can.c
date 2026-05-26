@@ -6,6 +6,8 @@
 #include "Can_Cfg.h"
 #include "CanIf.h"
 
+#include "Debug_Log.h"
+
 /*********************************************************************************************************************/
 /*---------------------------------------------Private Type Definitions----------------------------------------------*/
 /*********************************************************************************************************************/
@@ -260,6 +262,18 @@ Std_ReturnType Can_Write(
         return E_NOT_OK;
     }
 
+    CAN_DEBUG_PRINTF(
+        "[Can][TX] Hth=%u CanId=0x%03X Len=%u Data=",
+        (unsigned int)Hth,
+        (unsigned int)PduInfoPtr->id,
+        (unsigned int)PduInfoPtr->length
+    );
+
+    CAN_DEBUG_PRINT_DATA(
+        PduInfoPtr->sdu,
+        PduInfoPtr->length
+    );
+
     HohConfig = &Can_HardwareObjectConfig[Hth];
 
     if (HohConfig->CanObjectType != CAN_OBJECT_TYPE_TRANSMIT)
@@ -354,6 +368,13 @@ void Can_MainFunction_Write(
                     Can_TxPending[hohIndex].CanTxBufferIndex) == FALSE)
             {
                 Can_TxPending[hohIndex].IsPending = FALSE;
+
+                CAN_DEBUG_PRINTF(
+                    "[Can][TX-CNF] Hoh=%u SwPduHandle=%u Result=%u\r\n",
+                    (unsigned int)hohIndex,
+                    (unsigned int)Can_TxPending[hohIndex].SwPduHandle,
+                    (unsigned int)E_OK
+                );
 
                 CanIf_TxConfirmation(
                     Can_TxPending[hohIndex].SwPduHandle,
@@ -576,6 +597,18 @@ static Std_ReturnType Can_ReadRxFifo0(
         (void*)PduInfoPtr->SduDataPtr,
         (const void*)rxData,
         rxLength
+    );
+
+    CAN_DEBUG_PRINTF(
+        "[Can][RX] Hoh=%u CanId=0x%03X Len=%u Data=",
+        (unsigned int)Mailbox->Hoh,
+        (unsigned int)Mailbox->CanId,
+        (unsigned int)PduInfoPtr->SduLength
+    );
+
+    CAN_DEBUG_PRINT_DATA(
+        PduInfoPtr->SduDataPtr,
+        PduInfoPtr->SduLength
     );
 
     return E_OK;

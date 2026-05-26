@@ -8,6 +8,8 @@
 #include "Can.h"
 #include "CanTp.h"
 
+#include "Debug_Log.h"
+
 #include <string.h>
 
 /*********************************************************************************************************************/
@@ -65,6 +67,14 @@ Std_ReturnType CanIf_Transmit(
         return E_NOT_OK;
     }
 
+    CANIF_DEBUG_PRINTF(
+        "[CanIf][TX] CanIfTxPduId=%u CanId=0x%03X Hth=%u",
+        (unsigned int)CanIfTxPduId,
+        (unsigned int)TxConfig->CanId,
+        (unsigned int)TxConfig->Hth
+    );
+    CANIF_DEBUG_PRINT_PDU("", PduInfoPtr);
+
     /*
      * CanIf는 상위 계층에서 받은 SDU를
      * Can Driver가 이해할 수 있는 Can_PduType으로 변환한다.
@@ -115,6 +125,14 @@ void CanIf_RxIndication(
         return;
     }
 
+    CANIF_DEBUG_PRINTF(
+        "[CanIf][RX] CanIfRxPduId=%u Hrh=%u CanId=0x%03X",
+        (unsigned int)RxConfig->CanIfRxPduId,
+        (unsigned int)Mailbox->Hoh,
+        (unsigned int)Mailbox->CanId
+    );
+    CANIF_DEBUG_PRINT_PDU("", PduInfoPtr);
+
     /*
      * 현재 프로젝트에서는 CanIf의 상위 계층을 CanTp 하나로 고정한다.
      * CanIf Rx L-PDU를 CanTp Rx N-PDU로 매핑하여 전달한다.
@@ -138,6 +156,13 @@ void CanIf_TxConfirmation(
     {
         return;
     }
+
+    CANIF_DEBUG_PRINTF(
+        "[CanIf][TX-CNF] CanIfTxPduId=%u CanTpTxPduId=%u Result=%u\r\n",
+        (unsigned int)CanIfTxPduId,
+        (unsigned int)TxConfig->CanTpTxPduId,
+        (unsigned int)result
+    );
 
     /*
      * Can Driver의 TxConfirmation은 CAN L-PDU 하나의 송신 완료를 의미한다.

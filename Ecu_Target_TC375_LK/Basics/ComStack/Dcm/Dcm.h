@@ -64,6 +64,8 @@ typedef enum
  * → PROGRAMMING_SESSION
  * → ACTIVATION_PENDING
  * → ACTIVATED
+ *
+ * ROLLBACK_DONE은 새 다운로드를 시작할 때 EXTENDED_SESSION으로 재진입할 수 있다.
  */
 typedef enum
 {

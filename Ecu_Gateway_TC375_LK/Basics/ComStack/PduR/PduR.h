@@ -54,22 +54,25 @@ void PduR_DoIPTpTxConfirmation(
 /*
  * CanTp가 전체 N-SDU 수신 완료 후 PduR에 UDS payload를 전달한다.
  *
- * CanTpRxPduId:
- *   CanTp 기준 Rx N-SDU handle.
+ * PduRRxPduId:
+ *   CanTp가 PduR에 보고하는 PduR-facing Rx PDU handle.
  *
  * PduInfoPtr:
  *   수신 완료된 순수 UDS payload.
  */
 void PduR_CanTpRxIndication(
-    PduIdType CanTpRxPduId,
+    PduIdType PduRRxPduId,
     const PduInfoType* PduInfoPtr
 );
 
 /*
  * CanTp가 전체 N-SDU 송신 완료/실패를 PduR에 알릴 때 호출한다.
+ *
+ * PduRTxPduId:
+ *   CanTp가 PduR에 보고하는 PduR-facing Tx confirmation PDU handle.
  */
 void PduR_CanTpTxConfirmation(
-    PduIdType CanTpTxPduId,
+    PduIdType PduRTxPduId,
     Std_ReturnType Result
 );
 

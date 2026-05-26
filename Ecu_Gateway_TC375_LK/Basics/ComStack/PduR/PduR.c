@@ -9,6 +9,8 @@
 #include "CanTp.h"
 #include "DoIP.h"
 
+#include "Debug_Log.h"
+
 /*********************************************************************************************************************/
 /*------------------------------------------------Static Variables---------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -147,7 +149,7 @@ void PduR_DoIPTpTxConfirmation(
 }
 
 void PduR_CanTpRxIndication(
-    PduIdType CanTpRxPduId,
+    PduIdType PduRRxPduId,
     const PduInfoType* PduInfoPtr
 )
 {
@@ -165,7 +167,7 @@ void PduR_CanTpRxIndication(
 
     RouteConfig = PduR_FindRoutingPath(
         PDUR_MODULE_CANTP,
-        CanTpRxPduId,
+        PduRRxPduId,
         PDUR_EVENT_RX_INDICATION
     );
 
@@ -181,7 +183,7 @@ void PduR_CanTpRxIndication(
 }
 
 void PduR_CanTpTxConfirmation(
-    PduIdType CanTpTxPduId,
+    PduIdType PduRTxPduId,
     Std_ReturnType Result
 )
 {
@@ -194,7 +196,7 @@ void PduR_CanTpTxConfirmation(
 
     RouteConfig = PduR_FindRoutingPath(
         PDUR_MODULE_CANTP,
-        CanTpTxPduId,
+        PduRTxPduId,
         PDUR_EVENT_TX_CONFIRMATION
     );
 
@@ -248,6 +250,19 @@ static Std_ReturnType PduR_RouteTransmit(
         return E_NOT_OK;
     }
 
+    PDUR_DEBUG_PRINTF(
+        "[PduR][TX] Route SourceModule=%u SourcePduId=%u DestModule=%u DestPduId=%u\r\n",
+        RouteConfig->SourceModule,
+        RouteConfig->SourcePduId,
+        RouteConfig->DestModule,
+        RouteConfig->DestPduId
+    );
+
+    PDUR_DEBUG_PRINT_PDU(
+        "[PduR][TX] PDU",
+        PduInfoPtr
+    );
+
     switch (RouteConfig->DestModule)
     {
         case PDUR_MODULE_CANTP:
@@ -288,6 +303,19 @@ static void PduR_RouteRxIndication(
     {
         return;
     }
+
+    PDUR_DEBUG_PRINTF(
+        "[PduR][RX] Route SourceModule=%u SourcePduId=%u DestModule=%u DestPduId=%u\r\n",
+        RouteConfig->SourceModule,
+        RouteConfig->SourcePduId,
+        RouteConfig->DestModule,
+        RouteConfig->DestPduId
+    );
+
+    PDUR_DEBUG_PRINT_PDU(
+        "[PduR][RX] PDU",
+        PduInfoPtr
+    );
 
     switch (RouteConfig->DestModule)
     {
@@ -334,6 +362,15 @@ static void PduR_RouteTxConfirmation(
     {
         return;
     }
+
+    PDUR_DEBUG_PRINTF(
+        "[PduR][TX-CNF] Route SourceModule=%u SourcePduId=%u DestModule=%u DestPduId=%u Result=%u\r\n",
+        RouteConfig->SourceModule,
+        RouteConfig->SourcePduId,
+        RouteConfig->DestModule,
+        RouteConfig->DestPduId,
+        Result
+    );
 
     switch (RouteConfig->DestModule)
     {

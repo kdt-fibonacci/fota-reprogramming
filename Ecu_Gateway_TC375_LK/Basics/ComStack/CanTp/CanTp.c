@@ -8,14 +8,9 @@
 #include "CanIf.h"
 #include "PduR.h"
 
-#include "UART.h"
+#include "Debug_Log.h"
+
 #include <string.h>
-
-/*********************************************************************************************************************/
-/*------------------------------------------------------Macros-------------------------------------------------------*/
-/*********************************************************************************************************************/
-
-#define CANTP_DEBUG_LOG_ENABLE       (1U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Types--------------------------------------------------------*/
@@ -131,61 +126,6 @@ static void CanTp_HandleFlowControl(
 static void CanTp_ResetTxRuntime(void);
 static void CanTp_ResetRxRuntime(void);
 
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-static void CanTp_PrintPacket(
-    const char* Direction,
-    PduIdType PduId,
-    const PduInfoType* PduInfoPtr
-);
-#endif
-
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-#define CANTP_DEBUG_LOG_PACKET(Direction, PduId, PduInfoPtr) \
-    CanTp_PrintPacket((Direction), (PduId), (PduInfoPtr))
-#else
-#define CANTP_DEBUG_LOG_PACKET(Direction, PduId, PduInfoPtr) \
-    ((void)0)
-#endif
-
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-static void CanTp_PrintPacket(
-    const char* Direction,
-    PduIdType PduId,
-    const PduInfoType* PduInfoPtr
-)
-{
-    PduLengthType i;
-
-    if (PduInfoPtr == NULL_PTR)
-    {
-        UART_Printf("[CanTp][%s] PduId=%u, PduInfoPtr=NULL\r\n",
-                    Direction,
-                    PduId);
-        return;
-    }
-
-    if (PduInfoPtr->SduDataPtr == NULL_PTR)
-    {
-        UART_Printf("[CanTp][%s] PduId=%u, SduDataPtr=NULL\r\n",
-                    Direction,
-                    PduId);
-        return;
-    }
-
-    UART_Printf("[CanTp][%s] PduId=%u, Length=%u, Data=",
-                Direction,
-                PduId,
-                PduInfoPtr->SduLength);
-
-    for (i = 0U; i < PduInfoPtr->SduLength; i++)
-    {
-        UART_Printf(" %02X", PduInfoPtr->SduDataPtr[i]);
-    }
-
-    UART_Printf("\r\n");
-}
-#endif
-
 /*********************************************************************************************************************/
 /*---------------------------------------------Function Implementations----------------------------------------------*/
 /*********************************************************************************************************************/
@@ -225,6 +165,18 @@ Std_ReturnType CanTp_Transmit(
     {
         return E_NOT_OK;
     }
+
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX] CanTpTxSduId=%u PduRTxPduId=%u CanIfTxPduId=%u\r\n",
+        CanTpTxSduId,
+        TxConfig->PduRTxPduId,
+        TxConfig->CanIfTxNpduId
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][TX] N-SDU",
+        CanTpTxInfoPtr
+    );
 
     if (CanTpTxInfoPtr->SduLength <= CANTP_SF_MAX_PAYLOAD_LENGTH)
     {
@@ -288,9 +240,13 @@ void CanTp_RxIndication(
         return;
     }
 
-    CANTP_DEBUG_LOG_PACKET(
-        "RX",
-        CanTpRxNpduId,
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][RX] CanTpRxNpduId=%u\r\n",
+        CanTpRxNpduId
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][RX] N-PDU",
         PduInfoPtr
     );
 
@@ -341,7 +297,12 @@ void CanTp_TxConfirmation(
     Std_ReturnType result
 )
 {
-    (void)CanTpTxNPduId;
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX-CNF] CanTpTxNPduId=%u Result=%u State=%u\r\n",
+        CanTpTxNPduId,
+        result,
+        CanTp_TxRuntime.State
+    );
 
     if (CanTp_TxRuntime.State == CANTP_TX_STATE_IDLE)
     {
@@ -430,9 +391,13 @@ static Std_ReturnType CanTp_SendSingleFrame(
     CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_TX_CONFIRMATION;
     CanTp_TxRuntime.TotalLength = 0U;
 
-    CANTP_DEBUG_LOG_PACKET(
-        "TX",
-        TxConfig->CanIfTxNpduId,
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX] Frame=SF CanIfTxNpduId=%u\r\n",
+        TxConfig->CanIfTxNpduId
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][TX] N-PDU",
         &CanIfPduInfo
     );
 
@@ -471,9 +436,14 @@ static Std_ReturnType CanTp_SendFirstFrame(
     CanIfPduInfo.SduDataPtr = CanTp_TxRuntime.CanFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
-    CANTP_DEBUG_LOG_PACKET(
-        "TX",
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX] Frame=FF CanIfTxNpduId=%u TotalLength=%u\r\n",
         TxConfig->CanIfTxNpduId,
+        CanTp_TxRuntime.TotalLength
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][TX] N-PDU",
         &CanIfPduInfo
     );
 
@@ -534,9 +504,15 @@ static Std_ReturnType CanTp_SendNextConsecutiveFrame(void)
     CanIfPduInfo.SduDataPtr = CanTp_TxRuntime.CanFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
-    CANTP_DEBUG_LOG_PACKET(
-        "TX",
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX] Frame=CF CanIfTxNpduId=%u SN=%u CopyLength=%u\r\n",
         CanTp_TxRuntime.CanIfTxPduId,
+        CanTp_TxRuntime.NextSequenceNumber,
+        CopyLength
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][TX] N-PDU",
         &CanIfPduInfo
     );
 
@@ -584,6 +560,16 @@ static void CanTp_HandleSingleFrame(
 
     CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
     CanTpRxInfo.SduLength  = PayloadLength;
+
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][RX] Complete Type=SF PduRRxPduId=%u\r\n",
+        RxConfig->PduRRxPduId
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][RX] N-SDU",
+        &CanTpRxInfo
+    );
 
     PduR_CanTpRxIndication(
         RxConfig->PduRRxPduId,
@@ -642,6 +628,13 @@ static void CanTp_HandleFirstFrame(
     CanTp_RxRuntime.ExpectedSequenceNumber = 1U;
     CanTp_RxRuntime.BlockCounter           = 0U;
 
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][RX] Frame=FF CanTpRxNsduId=%u PduRRxPduId=%u TotalLength=%u\r\n",
+        RxConfig->CanTpRxNsduId,
+        RxConfig->PduRRxPduId,
+        TotalLength
+    );
+
     (void)CanTp_SendFlowControl(
         RxConfig,
         CANTP_FC_STATUS_CTS
@@ -672,11 +665,13 @@ static void CanTp_HandleConsecutiveFrame(
 
     if (SequenceNumber != CanTp_RxRuntime.ExpectedSequenceNumber)
     {
-        UART_Printf("[CanTp][RX-ERR] SN mismatch. expected=%u, received=%u, receivedLength=%u, totalLength=%u\r\n",
-                CanTp_RxRuntime.ExpectedSequenceNumber,
-                SequenceNumber,
-                CanTp_RxRuntime.ReceivedLength,
-                CanTp_RxRuntime.TotalLength);
+        CANTP_DEBUG_PRINTF(
+            "[CanTp][RX-ERR] SN mismatch Expected=%u Received=%u ReceivedLength=%u TotalLength=%u\r\n",
+            CanTp_RxRuntime.ExpectedSequenceNumber,
+            SequenceNumber,
+            CanTp_RxRuntime.ReceivedLength,
+            CanTp_RxRuntime.TotalLength
+        );
 
         CanTp_ResetRxRuntime();
         return;
@@ -724,6 +719,16 @@ static void CanTp_HandleConsecutiveFrame(
         CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
         CanTpRxInfo.SduLength  = CanTp_RxRuntime.TotalLength;
 
+        CANTP_DEBUG_PRINTF(
+            "[CanTp][RX] Complete Type=MF PduRRxPduId=%u\r\n",
+            CanTp_RxRuntime.PduRRxPduId
+        );
+
+        CANTP_DEBUG_PRINT_PDU(
+            "[CanTp][RX] N-SDU",
+            &CanTpRxInfo
+        );
+
         PduR_CanTpRxIndication(
             CanTp_RxRuntime.PduRRxPduId,
             &CanTpRxInfo
@@ -764,9 +769,14 @@ static Std_ReturnType CanTp_SendFlowControl(
     CanIfPduInfo.SduDataPtr = CanTp_RxRuntime.FcFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
-    CANTP_DEBUG_LOG_PACKET(
-        "TX",
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX] Frame=FC CanIfTxNpduId=%u FlowStatus=%u\r\n",
         RxConfig->CanIfTxFcPduId,
+        FlowStatus
+    );
+
+    CANTP_DEBUG_PRINT_PDU(
+        "[CanTp][TX] N-PDU",
         &CanIfPduInfo
     );
 
@@ -797,6 +807,13 @@ static void CanTp_HandleFlowControl(
     FlowStatus = PduInfoPtr->SduDataPtr[0] & CANTP_PCI_LENGTH_MASK;
     BlockSize  = PduInfoPtr->SduDataPtr[1];
     STmin      = PduInfoPtr->SduDataPtr[2];
+
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][RX] Frame=FC FlowStatus=%u BlockSize=%u STmin=%u\r\n",
+        FlowStatus,
+        BlockSize,
+        STmin
+    );
 
     if (FlowStatus == CANTP_FC_STATUS_CTS)
     {

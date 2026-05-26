@@ -12,13 +12,15 @@
 #include "SoAd.h"
 #include "PduR.h"
 
-#include "UART.h"
+#include "Debug_Log.h"
 
 #include <string.h>
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Types--------------------------------------------------------*/
 /*********************************************************************************************************************/
+
+extern volatile boolean Test_DoIPResponseReceived;
 
 typedef enum
 {
@@ -151,6 +153,16 @@ void DoIP_TpRxIndication(
         return;
     }
 
+    DOIP_DEBUG_PRINTF(
+        "[DoIP][RX] SoAdRxPduId=%u\r\n",
+        SoAdRxPduId
+    );
+
+    DOIP_DEBUG_PRINT_PDU(
+        "[DoIP][RX] SoAd PDU",
+        PduInfoPtr
+    );
+
     if ((DoIP_Runtime.RxLength + PduInfoPtr->SduLength) > DOIP_RX_BUFFER_SIZE)
     {
         (void)DoIP_SendGenericNack(
@@ -200,6 +212,18 @@ Std_ReturnType DoIP_TpTransmit(
     {
         return E_NOT_OK;
     }
+
+    DOIP_DEBUG_PRINTF(
+        "[DoIP][TX] DoIPTxPduId=%u SourceAddress=0x%04X TargetAddress=0x%04X\r\n",
+        DoIPTxPduId,
+        TxConfig->SourceAddress,
+        DoIP_Runtime.TesterLogicalAddress
+    );
+
+    DOIP_DEBUG_PRINT_PDU(
+        "[DoIP][TX] UDS",
+        PduInfoPtr
+    );
 
     PayloadLength = (uint32)PduInfoPtr->SduLength + 4U;
 
@@ -336,6 +360,21 @@ static void DoIP_HandleMessage(
     uint32 PayloadLength
 )
 {
+    PduInfoType PayloadPduInfo;
+
+    PayloadPduInfo.SduDataPtr = (uint8*)PayloadPtr;
+    PayloadPduInfo.SduLength  = (PduLengthType)PayloadLength;
+
+    DOIP_DEBUG_PRINTF(
+        "[DoIP][RX] PayloadType=0x%04X\r\n",
+        PayloadType
+    );
+
+    DOIP_DEBUG_PRINT_PDU(
+        "[DoIP][RX] Payload",
+        &PayloadPduInfo
+    );
+
     switch (PayloadType)
     {
         case DOIP_PAYLOAD_TYPE_ROUTING_ACTIVATION_REQ:
@@ -454,6 +493,18 @@ static void DoIP_HandleDiagnosticMessage(
     UdsPduInfo.SduDataPtr = (uint8*)&PayloadPtr[4];
     UdsPduInfo.SduLength  = (PduLengthType)(PayloadLength - 4U);
 
+    DOIP_DEBUG_PRINTF(
+        "[DoIP][RX] Diagnostic SourceAddress=0x%04X TargetAddress=0x%04X DoIPRxPduId=%u\r\n",
+        SourceAddress,
+        TargetAddress,
+        RxConfig->DoIPRxPduId
+    );
+
+    DOIP_DEBUG_PRINT_PDU(
+        "[DoIP][RX] UDS",
+        &UdsPduInfo
+    );
+
     /*
      * DoIP 계층에서 Diagnostic Message 수신 자체는 정상 처리되었으므로
      * Diagnostic Positive ACK를 먼저 전송한다.
@@ -522,6 +573,24 @@ static Std_ReturnType DoIP_SendMessage(
 
     SoAdPduInfo.SduDataPtr = DoIP_Runtime.TxBuffer;
     SoAdPduInfo.SduLength  = (PduLengthType)TotalLength;
+
+    DOIP_DEBUG_PRINTF(
+        "[DoIP][TX] PayloadType=0x%04X TotalLength=%u\r\n",
+        PayloadType,
+        TotalLength
+    );
+
+    DOIP_DEBUG_PRINT_PDU(
+        "[DoIP][TX] DoIP PDU",
+        &SoAdPduInfo
+    );
+
+#if (DEBUG_DOIP_ENABLE == 1U)
+    if (PayloadType == DOIP_PAYLOAD_TYPE_DIAG_MESSAGE)
+    {
+        Test_DoIPResponseReceived = TRUE;
+    }
+#endif
 
     return SoAd_Transmit(
         DoIP_Config.SoAdTxPduId,

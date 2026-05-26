@@ -7,6 +7,8 @@
 
 #include "PduR.h"
 
+#include "Debug_Log.h"
+
 #include <string.h>
 
 /*********************************************************************************************************************/
@@ -159,6 +161,16 @@ void Dcm_RxIndication(
         return;
     }
 
+    DCM_DEBUG_PRINTF(
+        "[Dcm][RX] DcmRxPduId=%u\r\n",
+        DcmRxPduId
+    );
+
+    DCM_DEBUG_PRINT_PDU(
+        "[Dcm][RX] UDS",
+        PduInfoPtr
+    );
+
     /*
      * Dcm_RxIndication에서는 요청을 복사만 하고,
      * 실제 UDS 처리는 Dcm_MainFunction에서 수행한다.
@@ -185,6 +197,12 @@ void Dcm_TxConfirmation(
     {
         return;
     }
+
+    DCM_DEBUG_PRINTF(
+        "[Dcm][TX-CNF] DcmTxPduId=%u Result=%u\r\n",
+        DcmTxPduId,
+        Result
+    );
 
     /*
      * 현재는 송신 완료 결과를 상태 전이에 크게 사용하지 않는다.
@@ -854,6 +872,16 @@ static Std_ReturnType Dcm_SendResponse(
 
     PduInfo.SduDataPtr = (uint8*)ResponseDataPtr;
     PduInfo.SduLength = ResponseLength;
+
+    DCM_DEBUG_PRINTF(
+        "[Dcm][TX] DcmTxPduId=%u\r\n",
+        DCM_TXPDU_DIAG_RES
+    );
+
+    DCM_DEBUG_PRINT_PDU(
+        "[Dcm][TX] UDS",
+        &PduInfo
+    );
 
     return PduR_DcmTransmit(
         DCM_TXPDU_DIAG_RES,

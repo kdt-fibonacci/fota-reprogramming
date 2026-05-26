@@ -17,6 +17,8 @@
 
 #include "DoIP.h"
 
+#include "Debug_Log.h"
+
 #include <string.h>
 
 /*********************************************************************************************************************/
@@ -218,6 +220,17 @@ Std_ReturnType SoAd_Transmit(
         return E_NOT_OK;
     }
 
+    SOAD_DEBUG_PRINTF(
+        "[SoAd][TX] SoAdTxPduId=%u SoConId=%u\r\n",
+        SoAdTxPduId,
+        Runtime->SoConId
+    );
+
+    SOAD_DEBUG_PRINT_PDU(
+        "[SoAd][TX] TCP",
+        PduInfoPtr
+    );
+
     memcpy(
         Runtime->TxBuffer,
         PduInfoPtr->SduDataPtr,
@@ -242,6 +255,12 @@ Std_ReturnType SoAd_Transmit(
     {
         return E_NOT_OK;
     }
+
+    SOAD_DEBUG_PRINTF(
+        "[SoAd][TX] Queued SoConId=%u Len=%u\r\n",
+        Runtime->SoConId,
+        PduInfoPtr->SduLength
+    );
 
     return E_OK;
 }
@@ -395,6 +414,17 @@ static err_t SoAd_Recv(
     PduInfo.SduDataPtr = Runtime->RxBuffer;
     PduInfo.SduLength  = Runtime->RxLength;
 
+    SOAD_DEBUG_PRINTF(
+        "[SoAd][RX] SoConId=%u SoAdRxPduId=%u\r\n",
+        Runtime->SoConId,
+        Config->RxPduId
+    );
+
+    SOAD_DEBUG_PRINT_PDU(
+        "[SoAd][RX] TCP",
+        &PduInfo
+    );
+
     DoIP_TpRxIndication(
         Config->RxPduId,
         &PduInfo
@@ -464,6 +494,12 @@ static err_t SoAd_Sent(
     if (Runtime != NULL_PTR)
     {
         Runtime->Retries = 0U;
+
+        SOAD_DEBUG_PRINTF(
+            "[SoAd][TX-CNF] SoConId=%u Len=%u\r\n",
+            Runtime->SoConId,
+            Length
+        );
     }
 
     return ERR_OK;

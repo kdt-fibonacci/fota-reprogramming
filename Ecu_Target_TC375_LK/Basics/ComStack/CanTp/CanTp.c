@@ -8,14 +8,23 @@
 #include "CanIf.h"
 #include "PduR.h"
 
-#include "UART.h"
+#include "Debug_Log.h"
 #include <string.h>
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Macros-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define CANTP_DEBUG_LOG_ENABLE       (1U)
+#define CANTP_DEBUG_LOG_PACKET(Direction, PduId, PduInfoPtr)           \
+    do                                                                 \
+    {                                                                  \
+        CANTP_DEBUG_PRINTF(                                            \
+            "[CanTp][%s] PduId=%u",                                    \
+            (Direction),                                               \
+            (unsigned int)(PduId)                                      \
+        );                                                             \
+        CANTP_DEBUG_PRINT_PDU("", (PduInfoPtr));                      \
+    } while (0)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Types--------------------------------------------------------*/
@@ -131,61 +140,6 @@ static void CanTp_HandleFlowControl(
 static void CanTp_ResetTxRuntime(void);
 static void CanTp_ResetRxRuntime(void);
 
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-static void CanTp_PrintPacket(
-    const char* Direction,
-    PduIdType PduId,
-    const PduInfoType* PduInfoPtr
-);
-#endif
-
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-#define CANTP_DEBUG_LOG_PACKET(Direction, PduId, PduInfoPtr) \
-    CanTp_PrintPacket((Direction), (PduId), (PduInfoPtr))
-#else
-#define CANTP_DEBUG_LOG_PACKET(Direction, PduId, PduInfoPtr) \
-    ((void)0)
-#endif
-
-#if (CANTP_DEBUG_LOG_ENABLE == 1U)
-static void CanTp_PrintPacket(
-    const char* Direction,
-    PduIdType PduId,
-    const PduInfoType* PduInfoPtr
-)
-{
-    PduLengthType i;
-
-    if (PduInfoPtr == NULL_PTR)
-    {
-        UART_Printf("[CanTp][%s] PduId=%u, PduInfoPtr=NULL\r\n",
-                    Direction,
-                    PduId);
-        return;
-    }
-
-    if (PduInfoPtr->SduDataPtr == NULL_PTR)
-    {
-        UART_Printf("[CanTp][%s] PduId=%u, SduDataPtr=NULL\r\n",
-                    Direction,
-                    PduId);
-        return;
-    }
-
-    UART_Printf("[CanTp][%s] PduId=%u, Length=%u, Data=",
-                Direction,
-                PduId,
-                PduInfoPtr->SduLength);
-
-    for (i = 0U; i < PduInfoPtr->SduLength; i++)
-    {
-        UART_Printf(" %02X", PduInfoPtr->SduDataPtr[i]);
-    }
-
-    UART_Printf("\r\n");
-}
-#endif
-
 /*********************************************************************************************************************/
 /*---------------------------------------------Function Implementations----------------------------------------------*/
 /*********************************************************************************************************************/
@@ -225,6 +179,12 @@ Std_ReturnType CanTp_Transmit(
     {
         return E_NOT_OK;
     }
+
+    CANTP_DEBUG_LOG_PACKET(
+        "TX-REQ",
+        CanTpTxSduId,
+        CanTpTxInfoPtr
+    );
 
     if (CanTpTxInfoPtr->SduLength <= CANTP_SF_MAX_PAYLOAD_LENGTH)
     {
@@ -341,7 +301,12 @@ void CanTp_TxConfirmation(
     Std_ReturnType result
 )
 {
-    (void)CanTpTxNPduId;
+    CANTP_DEBUG_PRINTF(
+        "[CanTp][TX-CNF] CanTpTxNPduId=%u Result=%u State=%u\r\n",
+        (unsigned int)CanTpTxNPduId,
+        (unsigned int)result,
+        (unsigned int)CanTp_TxRuntime.State
+    );
 
     if (CanTp_TxRuntime.State == CANTP_TX_STATE_IDLE)
     {
@@ -585,6 +550,12 @@ static void CanTp_HandleSingleFrame(
     CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
     CanTpRxInfo.SduLength  = PayloadLength;
 
+    CANTP_DEBUG_LOG_PACKET(
+        "RX-COMPLETE",
+        RxConfig->CanTpRxNsduId,
+        &CanTpRxInfo
+    );
+
     PduR_CanTpRxIndication(
         RxConfig->PduRRxPduId,
         &CanTpRxInfo
@@ -672,11 +643,13 @@ static void CanTp_HandleConsecutiveFrame(
 
     if (SequenceNumber != CanTp_RxRuntime.ExpectedSequenceNumber)
     {
-        UART_Printf("[CanTp][RX-ERR] SN mismatch. expected=%u, received=%u, receivedLength=%u, totalLength=%u\r\n",
-                CanTp_RxRuntime.ExpectedSequenceNumber,
-                SequenceNumber,
-                CanTp_RxRuntime.ReceivedLength,
-                CanTp_RxRuntime.TotalLength);
+        CANTP_DEBUG_PRINTF(
+            "[CanTp][RX-ERR] SN mismatch. expected=%u, received=%u, receivedLength=%u, totalLength=%u\r\n",
+            (unsigned int)CanTp_RxRuntime.ExpectedSequenceNumber,
+            (unsigned int)SequenceNumber,
+            (unsigned int)CanTp_RxRuntime.ReceivedLength,
+            (unsigned int)CanTp_RxRuntime.TotalLength
+        );
 
         CanTp_ResetRxRuntime();
         return;
@@ -723,6 +696,12 @@ static void CanTp_HandleConsecutiveFrame(
     {
         CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
         CanTpRxInfo.SduLength  = CanTp_RxRuntime.TotalLength;
+
+        CANTP_DEBUG_LOG_PACKET(
+            "RX-COMPLETE",
+            CanTp_RxRuntime.CanTpRxNsduId,
+            &CanTpRxInfo
+        );
 
         PduR_CanTpRxIndication(
             CanTp_RxRuntime.PduRRxPduId,

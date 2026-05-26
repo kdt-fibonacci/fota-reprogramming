@@ -2,77 +2,108 @@
 /*-----------------------------------------------------Includes------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#include "Platform_Types.h"
-#include "Std_Types.h"
+#include <stdint.h>
+#include <string.h>
+#include <stdbool.h>
 
 #include "Ifx_Types.h"
 #include "IfxCpu.h"
 #include "IfxScuWdt.h"
 
-#include "UART.h"
-#include "Shared_Util_Time.h"
+#include "Std_Types.h"
+#include "ComStack_Types.h"
 
-#include "DoIP.h"
-#include "SoAd.h"
-#include "LwIP.h"
+#include "UART.h"
+
+#include "Can.h"
+#include "CanIf.h"
+#include "CanTp.h"
+#include "PduR.h"
+#include "Dcm.h"
+
+#include "Shared_Util_Time.h"
+#include "Can_Cfg.h"
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Macros-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define TEST_STARTUP_DELAY_MS          (1000U)
-#define TEST_MAIN_PERIOD_MS            (1U)
-#define TEST_ALIVE_PERIOD_MS           (1000U)
-
-/*********************************************************************************************************************/
-/*------------------------------------------------Global Variables---------------------------------------------------*/
-/*********************************************************************************************************************/
-
-IfxCpu_syncEvent g_cpuSyncEvent;
+#define TEST_MAIN_PERIOD_MS                  (1U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------Private Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static void System_Init(void)
+static void Test_InitModules(void);
+static void Test_MainFunctions(void);
+
+/*********************************************************************************************************************/
+/*------------------------------------------------Main Function------------------------------------------------------*/
+/*********************************************************************************************************************/
+
+void core0_main(void)
 {
     IfxCpu_enableInterrupts();
 
-    IfxScuWdt_disableCpuWatchdog(IfxScuWdt_getCpuWatchdogPassword());
-    IfxScuWdt_disableSafetyWatchdog(IfxScuWdt_getSafetyWatchdogPassword());
+    IfxScuWdt_disableCpuWatchdog(
+        IfxScuWdt_getCpuWatchdogPassword()
+    );
 
-    UART_Init();
+    IfxScuWdt_disableSafetyWatchdog(
+        IfxScuWdt_getSafetyWatchdogPassword()
+    );
 
-    LWIP_Init();
-    SoAd_Init();
-    DoIP_Init();
-}
-
-static void Test_MainFunction(void)
-{
-     LWIP_MainFunction();
-}
-
-/*********************************************************************************************************************/
-/*------------------------------------------------------Main---------------------------------------------------------*/
-/*********************************************************************************************************************/
-
-int core0_main(void)
-{
-    System_Init();
-
-    Shared_Util_Time_DelayMs(TEST_STARTUP_DELAY_MS);
+    Test_InitModules();
 
     UART_Printf("\r\n");
     UART_Printf("========================================\r\n");
-    UART_Printf("[GW] DoIP Routing Activation Test Start\r\n");
-    UART_Printf("[GW] TCP Port          = 13400\r\n");
-    UART_Printf("[GW] Entity Address    = 0x0F00\r\n");
-    UART_Printf("[GW] Tester Address    = 0x0E00\r\n");
+    UART_Printf("[TARGET] Target DCM Responder Start\r\n");
     UART_Printf("========================================\r\n");
 
     while (1)
     {
-        Test_MainFunction();
+        Test_MainFunctions();
+
+        Shared_Util_Time_DelayMs(1);
     }
+}
+
+/*********************************************************************************************************************/
+/*------------------------------------------------Module Init/Main---------------------------------------------------*/
+/*********************************************************************************************************************/
+
+static void Test_InitModules(void)
+{
+    UART_Init();
+
+    Can_Init();
+
+    (void)Can_SetControllerMode(
+    CAN_CONTROLLER_0,
+    CAN_CS_STARTED
+    );
+
+    CanIf_Init();
+    CanTp_Init();
+    PduR_Init();
+    Dcm_Init();
+}
+
+static void Test_MainFunctions(void)
+{
+    /*
+     * 순서는 크게 아래 흐름이면 된다.
+     *
+     * 1. CAN Rx frame 처리
+     * 2. CanTp 재조립/송신 상태머신 처리
+     * 3. DCM pending request 처리
+     * 4. CAN Tx pending frame 처리
+     */
+    Can_MainFunction_Read();
+
+    CanTp_MainFunction();
+
+    Dcm_MainFunction();
+
+    Can_MainFunction_Write();
 }

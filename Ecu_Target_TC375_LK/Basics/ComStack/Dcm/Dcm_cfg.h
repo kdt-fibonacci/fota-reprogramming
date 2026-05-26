@@ -14,7 +14,7 @@
 
 #define DCM_RX_BUFFER_SIZE                          (1024U)
 #define DCM_TX_BUFFER_SIZE                          (1024U)
-#define DCM_LENGTH_FORMAT_MAX_BLOCK_LENGTH_2BYTE    (0x20U)
+#define DCM_LENGTH_FORMAT_MAX_BLOCK_LENGTH          (0x30U)
 /*********************************************************************************************************************/
 /*---------------------------------------------------DCM PDU IDs-----------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -41,6 +41,7 @@
 
 #define DCM_SID_DIAGNOSTIC_SESSION_CONTROL         (0x10U)
 #define DCM_SID_ECU_RESET                          (0x11U)
+#define DCM_SID_READ_DATA_BY_IDENTIFIER            (0x22U)
 #define DCM_SID_TESTER_PRESENT                     (0x3EU)
 
 #define DCM_SID_REQUEST_DOWNLOAD                   (0x34U)
@@ -48,6 +49,21 @@
 #define DCM_SID_REQUEST_TRANSFER_EXIT              (0x37U)
 
 #define DCM_SID_ROUTINE_CONTROL                    (0x31U)
+
+/*********************************************************************************************************************/
+/*------------------------------------------------Data Identifiers---------------------------------------------------*/
+/*********************************************************************************************************************/
+
+/*
+ * FOTA Status DID
+ *
+ * Request:
+ *   22 F1 80
+ *
+ * Positive Response:
+ *   62 F1 80 [FotaState] [LastFotaResult]
+ */
+#define DCM_DID_FOTA_STATUS                         (0xF180U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------Positive Response--------------------------------------------------*/
@@ -111,8 +127,8 @@
 
 /*
  * RequestDownload Positive Response에서 반환할 maxNumberOfBlockLength.
- * 현재는 테스트용으로 0x0040, 즉 64 bytes로 둔다.
+ * 3-byte length field로 0x000200, 즉 512 bytes를 광고한다.
  */
-#define DCM_MAX_TRANSFER_BLOCK_LENGTH              (64U)
+#define DCM_MAX_TRANSFER_BLOCK_LENGTH              (512U)
 
 #endif /* DCM_CFG_H_ */

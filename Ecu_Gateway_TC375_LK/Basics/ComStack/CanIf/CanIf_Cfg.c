@@ -13,7 +13,7 @@ const CanIf_TxPduConfigType CanIf_TxPduConfig[CANIF_TXPDU_COUNT] =
     {
         .CanTpTxPduId = CANTP_TXNPDU_LOCAL_TO_REMOTE,
         .CanIfTxPduId = CANIF_TXPDU_LOCAL_TO_REMOTE,
-        .CanId        = 0x7E0U,
+        .CanId        = 0x7E8U,
         .Hth          = CAN_HTH_LOCAL_TO_REMOTE
     }
 };
@@ -27,7 +27,7 @@ const CanIf_RxPduConfigType CanIf_RxPduConfig[CANIF_RXPDU_COUNT] =
     {
         .CanTpRxPduId = CANTP_RXNPDU_REMOTE_TO_LOCAL,
         .CanIfRxPduId = CANIF_RXPDU_REMOTE_TO_LOCAL,
-        .CanId        = 0x7E8U,
+        .CanId        = 0x7E0U,
         .Hrh          = CAN_HRH_REMOTE_TO_LOCAL
     }
 };

@@ -9,6 +9,8 @@
 #include "CanTp.h"
 #include "DoIP.h"
 
+#include "Debug_Log.h"
+
 /*********************************************************************************************************************/
 /*------------------------------------------------Static Variables---------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -77,6 +79,15 @@ Std_ReturnType PduR_DcmTransmit(
         return E_NOT_OK;
     }
 
+    PDUR_DEBUG_PRINTF(
+        "[PduR][TX] Src=Dcm SrcPduId=%u Route=%u DestModule=%u DestPduId=%u",
+        (unsigned int)DcmTxPduId,
+        (unsigned int)RouteConfig->PduRRoutingPathId,
+        (unsigned int)RouteConfig->DestModule,
+        (unsigned int)RouteConfig->DestPduId
+    );
+    PDUR_DEBUG_PRINT_PDU("", PduInfoPtr);
+
     return PduR_RouteTransmit(
         RouteConfig,
         PduInfoPtr
@@ -111,6 +122,15 @@ void PduR_DoIPTpRxIndication(
         return;
     }
 
+    PDUR_DEBUG_PRINTF(
+        "[PduR][RX] Src=DoIP SrcPduId=%u Route=%u DestModule=%u DestPduId=%u",
+        (unsigned int)DoIPRxPduId,
+        (unsigned int)RouteConfig->PduRRoutingPathId,
+        (unsigned int)RouteConfig->DestModule,
+        (unsigned int)RouteConfig->DestPduId
+    );
+    PDUR_DEBUG_PRINT_PDU("", PduInfoPtr);
+
     PduR_RouteRxIndication(
         RouteConfig,
         PduInfoPtr
@@ -140,6 +160,15 @@ void PduR_DoIPTpTxConfirmation(
         return;
     }
 
+    PDUR_DEBUG_PRINTF(
+        "[PduR][TX-CNF] Src=DoIP SrcPduId=%u Route=%u DestModule=%u DestPduId=%u Result=%u\r\n",
+        (unsigned int)DoIPTxPduId,
+        (unsigned int)RouteConfig->PduRRoutingPathId,
+        (unsigned int)RouteConfig->DestModule,
+        (unsigned int)RouteConfig->DestPduId,
+        (unsigned int)Result
+    );
+
     PduR_RouteTxConfirmation(
         RouteConfig,
         Result
@@ -147,7 +176,7 @@ void PduR_DoIPTpTxConfirmation(
 }
 
 void PduR_CanTpRxIndication(
-    PduIdType CanTpRxPduId,
+    PduIdType PduRRxPduId,
     const PduInfoType* PduInfoPtr
 )
 {
@@ -165,7 +194,7 @@ void PduR_CanTpRxIndication(
 
     RouteConfig = PduR_FindRoutingPath(
         PDUR_MODULE_CANTP,
-        CanTpRxPduId,
+        PduRRxPduId,
         PDUR_EVENT_RX_INDICATION
     );
 
@@ -174,6 +203,15 @@ void PduR_CanTpRxIndication(
         return;
     }
 
+    PDUR_DEBUG_PRINTF(
+        "[PduR][RX] Src=CanTp SrcPduId=%u Route=%u DestModule=%u DestPduId=%u",
+        (unsigned int)PduRRxPduId,
+        (unsigned int)RouteConfig->PduRRoutingPathId,
+        (unsigned int)RouteConfig->DestModule,
+        (unsigned int)RouteConfig->DestPduId
+    );
+    PDUR_DEBUG_PRINT_PDU("", PduInfoPtr);
+
     PduR_RouteRxIndication(
         RouteConfig,
         PduInfoPtr
@@ -181,7 +219,7 @@ void PduR_CanTpRxIndication(
 }
 
 void PduR_CanTpTxConfirmation(
-    PduIdType CanTpTxPduId,
+    PduIdType PduRTxPduId,
     Std_ReturnType Result
 )
 {
@@ -194,7 +232,7 @@ void PduR_CanTpTxConfirmation(
 
     RouteConfig = PduR_FindRoutingPath(
         PDUR_MODULE_CANTP,
-        CanTpTxPduId,
+        PduRTxPduId,
         PDUR_EVENT_TX_CONFIRMATION
     );
 
@@ -202,6 +240,15 @@ void PduR_CanTpTxConfirmation(
     {
         return;
     }
+
+    PDUR_DEBUG_PRINTF(
+        "[PduR][TX-CNF] Src=CanTp SrcPduId=%u Route=%u DestModule=%u DestPduId=%u Result=%u\r\n",
+        (unsigned int)PduRTxPduId,
+        (unsigned int)RouteConfig->PduRRoutingPathId,
+        (unsigned int)RouteConfig->DestModule,
+        (unsigned int)RouteConfig->DestPduId,
+        (unsigned int)Result
+    );
 
     PduR_RouteTxConfirmation(
         RouteConfig,

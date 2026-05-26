@@ -6,6 +6,8 @@
 #include "Can_Cfg.h"
 #include "CanIf.h"
 
+#include "Debug_Log.h"
+
 /*********************************************************************************************************************/
 /*---------------------------------------------Private Type Definitions----------------------------------------------*/
 /*********************************************************************************************************************/
@@ -288,6 +290,19 @@ Std_ReturnType Can_Write(
     txMsg.frameMode       = IfxCan_FrameMode_fdLongAndFast;
     txMsg.dataLengthCode  = Can_ConvertLengthToDlc(PduInfoPtr->length);
 
+    CAN_DEBUG_PRINTF(
+        "[Can][TX] Hth=%u SwPdu=%u CanId=0x%03X Len=%u Data=",
+        Hth,
+        PduInfoPtr->swPduHandle,
+        PduInfoPtr->id,
+        PduInfoPtr->length
+    );
+
+    CAN_DEBUG_PRINT_DATA(
+        PduInfoPtr->sdu,
+        PduInfoPtr->length
+    );
+
     status = IfxCan_Can_sendMessage(
         &Can_Runtime.Node[HohConfig->CanControllerId],
         &txMsg,
@@ -301,8 +316,20 @@ Std_ReturnType Can_Write(
         Can_TxPending[Hth].CanControllerId  = HohConfig->CanControllerId;
         Can_TxPending[Hth].CanTxBufferIndex = HohConfig->ObjectConfig.Tx.CanTxBufferIndex;
 
+        CAN_DEBUG_PRINTF(
+            "[Can][TX] Queued Hth=%u TxBuffer=%u\r\n",
+            Hth,
+            HohConfig->ObjectConfig.Tx.CanTxBufferIndex
+        );
+
         return E_OK;
     }
+
+    CAN_DEBUG_PRINTF(
+        "[Can][TX] Send failed Hth=%u Status=%u\r\n",
+        Hth,
+        status
+    );
 
     return E_NOT_OK;
 }
@@ -317,6 +344,7 @@ void Can_MainFunction_Read(
 
     if (Can_ControllerState[CAN_CONTROLLER_0] != CAN_CS_STARTED)
     {
+        CAN_DEBUG_PRINTF("[Can][RX] Controller not started\r\n");
         return;
     }
 
@@ -329,7 +357,25 @@ void Can_MainFunction_Read(
      */
     while (Can_ReadRxFifo0(&mailbox, &pduInfo) == E_OK)
     {
-        CanIf_RxIndication(&mailbox, &pduInfo);
+        CAN_DEBUG_PRINTF(
+            "[Can][RX] FIFO0 Hoh=%u CanId=0x%03X Len=%u Data=",
+            mailbox.Hoh,
+            mailbox.CanId,
+            pduInfo.SduLength
+        );
+
+        CAN_DEBUG_PRINT_DATA(
+            pduInfo.SduDataPtr,
+            pduInfo.SduLength
+        );
+
+        CAN_DEBUG_PRINTF("[Can][RX] Call CanIf_RxIndication\r\n");
+
+        CanIf_RxIndication(
+            &mailbox,
+            &pduInfo
+        );
+
         pduInfo.SduLength = 0U;
     }
 }
@@ -354,6 +400,13 @@ void Can_MainFunction_Write(
                     Can_TxPending[hohIndex].CanTxBufferIndex) == FALSE)
             {
                 Can_TxPending[hohIndex].IsPending = FALSE;
+
+                CAN_DEBUG_PRINTF(
+                    "[Can][TX-CNF] Hoh=%u SwPdu=%u Result=%u\r\n",
+                    hohIndex,
+                    Can_TxPending[hohIndex].SwPduHandle,
+                    E_OK
+                );
 
                 CanIf_TxConfirmation(
                     Can_TxPending[hohIndex].SwPduHandle,
