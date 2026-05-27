@@ -151,8 +151,7 @@ uint32 FOTA_GetLastUpdateResult(void);
 uint32 FOTA_GetLastProvisionResult(void);
 uint32 FOTA_GetLastSwapEntryIndex(void);
 uint32 FOTA_GetLastSwapTargetModeWord(void);
-Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks);
-void FOTA_ResetMainFunction(void);
+Std_ReturnType FOTA_PerformSystemReset(void);
 const void *FOTA_GetUpdateDebug(void);
 
 #ifdef __cplusplus

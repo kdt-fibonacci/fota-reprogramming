@@ -596,45 +596,16 @@ Std_ReturnType FOTA_ActivateImage(void)
     return E_OK;
 }
 
-Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
+Std_ReturnType FOTA_PerformSystemReset(void)
 {
-    /*
-     * Do not reset immediately inside DCM service processing.
-     * DCM should send the positive response first.
-     * Then this pending reset is executed in FOTA_ResetMainFunction().
-     */
-    g_fotaResetDelayTicks = delayTicks;
-    g_fotaResetRequested = 1U;
-
-    return E_OK;
-}
-
-void FOTA_ResetMainFunction(void)
-{
-    if (g_fotaResetRequested == 0U)
-    {
-        return;
-    }
-
-    if (g_fotaResetDelayTicks > 0U)
-    {
-        g_fotaResetDelayTicks--;
-        return;
-    }
-
-    g_fotaResetRequested = 0U;
-
-    /*
-     * Use a reset path that makes SSW run again.
-     * Exact enum names can differ slightly by iLLD version.
-     */
-    IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           0);
+    IfxScuRcu_performReset(IfxScuRcu_ResetType_system, 0u);
 
     while (1)
     {
         /* wait for reset */
     }
+
+    return E_OK;
 }
 
 FotaHandlerStateType FOTA_GetHandlerState(void)
