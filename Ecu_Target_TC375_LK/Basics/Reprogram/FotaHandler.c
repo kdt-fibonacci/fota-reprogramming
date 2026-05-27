@@ -603,7 +603,7 @@ Std_ReturnType FOTA_PerformSystemReset(void)
      * This reset path must make SSW run again so that UCB_SWAP is evaluated.
      */
     IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           IfxScuRcu_ResetReason_application);
+                           0);
 
     while (1)
     {
