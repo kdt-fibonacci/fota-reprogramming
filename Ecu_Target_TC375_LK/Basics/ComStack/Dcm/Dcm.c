@@ -311,6 +311,7 @@ static void Dcm_ProcessRequest(Dcm_OpStatusType OpStatus)
 {
     if (Dcm_Runtime.RxLength == 0U)
     {
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
         return;
     }
 
@@ -319,6 +320,11 @@ static void Dcm_ProcessRequest(Dcm_OpStatusType OpStatus)
         Dcm_Runtime.RxBuffer,
         Dcm_Runtime.RxLength
     );
+
+    if (Dcm_Runtime.RequestState == DCM_REQUEST_NEW)
+    {
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+    }
 }
 
 static void Dcm_DispatchService(

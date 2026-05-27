@@ -7,6 +7,7 @@
 #include "FotaHandler.h"
 #include "Update/Sota_UpdateCore.h"
 #include "Swap/Sota_SwapDiag.h"
+#include "Debug_Log.h"
 
 #ifndef NULL_PTR
 #define NULL_PTR ((void *)0)
@@ -117,6 +118,55 @@ static uint8 FOTA_HasActiveChunk(void)
                    (g_fotaHandlerContext.chunkState == FOTA_CHUNK_DONE));
 }
 
+static void FOTA_DebugPrintUpdateContext(const char *PrefixPtr)
+{
+    const SotaUpdateDebug_t *DebugPtr;
+
+    DebugPtr = SotaUpdate_GetDebug();
+
+    if (DebugPtr == NULL_PTR)
+    {
+        FOTA_DEBUG_PRINTF("%s UpdateDebug=NULL\r\n", PrefixPtr);
+        return;
+    }
+
+    FOTA_DEBUG_PRINTF(
+        "%s ImgLen=0x%08lX Padded=0x%08lX State=%lu Result=%lu\r\n",
+        PrefixPtr,
+        (unsigned long)DebugPtr->imageLength,
+        (unsigned long)DebugPtr->paddedImageLength,
+        (unsigned long)DebugPtr->state,
+        (unsigned long)DebugPtr->finalizeResult
+    );
+
+    FOTA_DEBUG_PRINTF(
+        "%s Inactive=0x%08lX..0x%08lX Erase=0x%08lX..0x%08lX Size=0x%08lX Sectors=%lu\r\n",
+        PrefixPtr,
+        (unsigned long)DebugPtr->inactiveBase,
+        (unsigned long)DebugPtr->inactiveEnd,
+        (unsigned long)DebugPtr->eraseStart,
+        (unsigned long)DebugPtr->eraseEnd,
+        (unsigned long)DebugPtr->eraseSize,
+        (unsigned long)DebugPtr->sectorCount
+    );
+
+    FOTA_DEBUG_PRINTF(
+        "%s Received=%lu Programmed=%lu PageFill=%lu\r\n",
+        PrefixPtr,
+        (unsigned long)DebugPtr->receivedBytes,
+        (unsigned long)DebugPtr->programmedBytes,
+        (unsigned long)DebugPtr->currentPageFill
+    );
+
+    FOTA_DEBUG_PRINTF(
+        "%s EraseResult=%lu DmuErase=0x%08lX DmuProgram=0x%08lX\r\n",
+        PrefixPtr,
+        (unsigned long)DebugPtr->eraseResult,
+        (unsigned long)DebugPtr->dmuErrAfterErase,
+        (unsigned long)DebugPtr->dmuErrAfterProgram
+    );
+}
+
 /*********************************************************************************************************************/
 /*------------------------------------------------Public Functions---------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -128,6 +178,8 @@ void FOTA_Init(void)
 
 void FOTA_ResetContext(void)
 {
+    FOTA_DEBUG_PRINTF("[FOTA][RESET] Context reset\r\n");
+
     (void)memset(&g_fotaHandlerContext, 0, sizeof(g_fotaHandlerContext));
     FOTA_SetDefaultsAfterMemset();
 
@@ -139,6 +191,11 @@ Std_ReturnType FOTA_ProvisionInitialOnce(void)
 {
     SotaProvision_Result result;
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][PROVISION] InitialOnce start Initialized=%u\r\n",
+        g_fotaHandlerContext.initialized
+    );
+
     if (g_fotaHandlerContext.initialized == 0U)
     {
         FOTA_Init();
@@ -149,6 +206,12 @@ Std_ReturnType FOTA_ProvisionInitialOnce(void)
      * It is intentionally explicit and is not called by FOTA_Init().
      */
     result = SotaProvision_RunInitialOnce();
+
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][PROVISION] InitialOnce result=%u\r\n",
+        (unsigned int)result
+    );
+
     return FOTA_MapProvisionResult(result, FOTA_HANDLER_RESULT_PROVISION_FAILED);
 }
 
@@ -161,10 +224,18 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength)
 {
     SotaUpdateResult_t result;
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][DOWNLOAD] Start imageLength=0x%08lX (%lu)\r\n",
+        (unsigned long)imageLength,
+        (unsigned long)imageLength
+    );
+
     if (imageLength == 0U)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_PARAM;
         g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ERROR;
+
+        FOTA_DEBUG_PRINTF("[FOTA][DOWNLOAD] Reject: imageLength is zero\r\n");
         return E_NOT_OK;
     }
 
@@ -174,10 +245,22 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength)
     result = SotaUpdate_Begin(imageLength);
     g_fotaHandlerContext.lastUpdateResult = result;
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][DOWNLOAD] SotaUpdate_Begin result=%u\r\n",
+        (unsigned int)result
+    );
+    FOTA_DebugPrintUpdateContext("[FOTA][DOWNLOAD]");
+
     if (result != SOTA_UPDATE_OK)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_UPDATE_FAILED;
         g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ERROR;
+
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][DOWNLOAD] Reject: HandlerResult=%u UpdateResult=%u\r\n",
+            (unsigned int)g_fotaHandlerContext.lastHandlerResult,
+            (unsigned int)g_fotaHandlerContext.lastUpdateResult
+        );
         return E_NOT_OK;
     }
 
@@ -189,6 +272,11 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength)
     g_fotaHandlerContext.activationArmed = 0U;
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_DOWNLOAD_STARTED;
     g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
+
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][DOWNLOAD] Accepted ExpectedLength=0x%08lX\r\n",
+        (unsigned long)g_fotaHandlerContext.expectedImageLength
+    );
 
     return E_OK;
 }
@@ -202,22 +290,46 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
 {
     if (g_fotaHandlerContext.initialized == 0U)
     {
+        FOTA_DEBUG_PRINTF("[FOTA][TRANSFER] Lazy init\r\n");
         FOTA_Init();
     }
 
     if (g_fotaHandlerContext.downloadStarted == 0U)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_STATE;
+
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][TRANSFER] Reject: download not started OpStatus=%u BSC=%u Len=%lu\r\n",
+            (unsigned int)OpStatus,
+            (unsigned int)BlockSequenceCounter,
+            (unsigned long)DataLength
+        );
         return DCM_WRITE_FAILED;
     }
 
     if (OpStatus == DCM_OP_INITIAL)
     {
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][TRANSFER] Initial BSC=%u Len=%lu ChunkState=%u Total=%lu/%lu\r\n",
+            (unsigned int)BlockSequenceCounter,
+            (unsigned long)DataLength,
+            (unsigned int)g_fotaHandlerContext.chunkState,
+            (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
+            (unsigned long)g_fotaHandlerContext.expectedImageLength
+        );
+
         if ((DataPtr == NULL_PTR) ||
             (DataLength == 0U) ||
             (DataLength > FOTA_MAX_TRANSFER_DATA_LENGTH))
         {
             FOTA_SetHandlerError(FOTA_HANDLER_RESULT_INVALID_PARAM, SOTA_UPDATE_INVALID_PARAM);
+
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Reject: invalid chunk PtrNull=%u Len=%lu Max=%u\r\n",
+                (unsigned int)(DataPtr == NULL_PTR),
+                (unsigned long)DataLength,
+                (unsigned int)FOTA_MAX_TRANSFER_DATA_LENGTH
+            );
             return DCM_WRITE_FAILED;
         }
 
@@ -231,6 +343,12 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
             g_fotaHandlerContext.chunkState = FOTA_CHUNK_RECEIVED;
             g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_TRANSFERRING;
 
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Chunk received BSC=%u Len=%lu -> PENDING\r\n",
+                (unsigned int)BlockSequenceCounter,
+                (unsigned long)DataLength
+            );
+
             return DCM_WRITE_PENDING;
         }
 
@@ -239,6 +357,11 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
             (g_fotaHandlerContext.chunkState == FOTA_CHUNK_PROCESSING))
         {
             g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_BUSY;
+
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Busy: ChunkState=%u -> PENDING\r\n",
+                (unsigned int)g_fotaHandlerContext.chunkState
+            );
             return DCM_WRITE_PENDING;
         }
 
@@ -246,39 +369,71 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
         {
             /* Previous pending operation finished but DCM has not consumed DCM_OP_PENDING yet. */
             g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_BUSY;
+
+            FOTA_DEBUG_PRINTF("[FOTA][TRANSFER] Previous chunk done, waiting DCM pending poll\r\n");
             return DCM_WRITE_PENDING;
         }
 
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][TRANSFER] Reject: unexpected ChunkState=%u\r\n",
+            (unsigned int)g_fotaHandlerContext.chunkState
+        );
         return DCM_WRITE_FAILED;
     }
 
     if (OpStatus == DCM_OP_PENDING)
     {
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][TRANSFER] Pending poll ChunkState=%u\r\n",
+            (unsigned int)g_fotaHandlerContext.chunkState
+        );
+
         if (g_fotaHandlerContext.chunkState == FOTA_CHUNK_DONE)
         {
             g_fotaHandlerContext.chunkState = FOTA_CHUNK_IDLE;
             FOTA_ClearChunkOnly();
             g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
+
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Chunk consumed -> OK Total=%lu/%lu\r\n",
+                (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
+                (unsigned long)g_fotaHandlerContext.expectedImageLength
+            );
             return DCM_WRITE_OK;
         }
 
         if (g_fotaHandlerContext.chunkState == FOTA_CHUNK_ERROR)
         {
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Reject: chunk error HandlerResult=%u UpdateResult=%u\r\n",
+                (unsigned int)g_fotaHandlerContext.lastHandlerResult,
+                (unsigned int)g_fotaHandlerContext.lastUpdateResult
+            );
             return DCM_WRITE_FAILED;
         }
 
         if ((g_fotaHandlerContext.chunkState == FOTA_CHUNK_RECEIVED) ||
             (g_fotaHandlerContext.chunkState == FOTA_CHUNK_PROCESSING))
         {
+            FOTA_DEBUG_PRINTF(
+                "[FOTA][TRANSFER] Still processing ChunkState=%u\r\n",
+                (unsigned int)g_fotaHandlerContext.chunkState
+            );
             return DCM_WRITE_PENDING;
         }
 
         /* Pending without an active chunk means DCM call sequencing is wrong. */
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_STATE;
+
+        FOTA_DEBUG_PRINTF("[FOTA][TRANSFER] Reject: pending without active chunk\r\n");
         return DCM_WRITE_FAILED;
     }
 
     g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_PARAM;
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][TRANSFER] Reject: invalid OpStatus=%u\r\n",
+        (unsigned int)OpStatus
+    );
     return DCM_WRITE_FAILED;
 }
 
@@ -291,21 +446,39 @@ void FOTAHandlerMain(void)
         return;
     }
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][MAIN] Write chunk BSC=%u Len=%lu\r\n",
+        (unsigned int)g_fotaHandlerContext.blockSequenceCounter,
+        (unsigned long)g_fotaHandlerContext.length
+    );
+
     g_fotaHandlerContext.chunkState = FOTA_CHUNK_PROCESSING;
 
     result = SotaUpdate_WriteChunk(&g_fotaHandlerContext.buffer[0],
                                    g_fotaHandlerContext.length);
     g_fotaHandlerContext.lastUpdateResult = result;
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][MAIN] Write result=%u\r\n",
+        (unsigned int)result
+    );
+
     if (result == SOTA_UPDATE_OK)
     {
         g_fotaHandlerContext.totalReceivedBytes += g_fotaHandlerContext.length;
         g_fotaHandlerContext.chunkState = FOTA_CHUNK_DONE;
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
+
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][MAIN] Chunk done Total=%lu/%lu\r\n",
+            (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
+            (unsigned long)g_fotaHandlerContext.expectedImageLength
+        );
     }
     else
     {
         FOTA_SetHandlerError(FOTA_HANDLER_RESULT_UPDATE_FAILED, result);
+        FOTA_DebugPrintUpdateContext("[FOTA][MAIN]");
     }
 }
 
@@ -316,23 +489,42 @@ Std_ReturnType FOTA_RequestTransferExit(uint32 expectedCrc)
     if (g_fotaHandlerContext.downloadStarted == 0U)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_STATE;
+
+        FOTA_DEBUG_PRINTF("[FOTA][VERIFY] Reject: download not started\r\n");
         return E_NOT_OK;
     }
 
     if (FOTA_HasActiveChunk() != 0U)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_BUSY;
+
+        FOTA_DEBUG_PRINTF(
+            "[FOTA][VERIFY] Reject: active chunk ChunkState=%u\r\n",
+            (unsigned int)g_fotaHandlerContext.chunkState
+        );
         return E_NOT_OK;
     }
 
     g_fotaHandlerContext.expectedImageCrc = expectedCrc;
 
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][VERIFY] Start ExpectedCrc=0x%08lX\r\n",
+        (unsigned long)expectedCrc
+    );
+
     if (g_fotaHandlerContext.verified != 0U)
     {
+        FOTA_DEBUG_PRINTF("[FOTA][VERIFY] Already verified\r\n");
         return E_OK;
     }
 
     result = SotaUpdate_FinalizeAndVerify(expectedCrc);
+
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][VERIFY] Finalize result=%u\r\n",
+        (unsigned int)result
+    );
+    FOTA_DebugPrintUpdateContext("[FOTA][VERIFY]");
 
     if (FOTA_MapUpdateResult(result, FOTA_HANDLER_RESULT_VERIFY_FAILED) != E_OK)
     {
@@ -341,6 +533,8 @@ Std_ReturnType FOTA_RequestTransferExit(uint32 expectedCrc)
 
     g_fotaHandlerContext.verified = 1U;
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_VERIFIED;
+
+    FOTA_DEBUG_PRINTF("[FOTA][VERIFY] Verified\r\n");
     return E_OK;
 }
 
@@ -359,6 +553,8 @@ Std_ReturnType FOTA_ActivateImage(void)
     if (g_fotaHandlerContext.verified == 0U)
     {
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_INVALID_STATE;
+
+        FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Reject: image not verified\r\n");
         return E_NOT_OK;
     }
 #endif
@@ -370,10 +566,19 @@ Std_ReturnType FOTA_ActivateImage(void)
      * Arms next UCB_SWAP entry only.
      * Does not jump and does not reset.
      */
+    FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Program next swap entry\r\n");
+
     result = SotaProvision_ProgramNextSwapEntry(&entryIndex, &targetModeWord);
 
     g_fotaHandlerContext.lastSwapEntryIndex = entryIndex;
     g_fotaHandlerContext.lastSwapTargetModeWord = targetModeWord;
+
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][ACTIVATE] Result=%u Entry=%lu TargetMode=0x%08lX\r\n",
+        (unsigned int)result,
+        (unsigned long)entryIndex,
+        (unsigned long)targetModeWord
+    );
 
     if (FOTA_MapProvisionResult(result, FOTA_HANDLER_RESULT_ACTIVATION_FAILED) != E_OK)
     {
@@ -382,6 +587,8 @@ Std_ReturnType FOTA_ActivateImage(void)
 
     g_fotaHandlerContext.activationArmed = 1U;
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ACTIVATION_ARMED;
+
+    FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Armed\r\n");
     return E_OK;
 }
 
