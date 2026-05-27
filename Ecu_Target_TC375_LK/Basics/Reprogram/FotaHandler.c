@@ -7,6 +7,8 @@
 #include "FotaHandler.h"
 #include "Update/Sota_UpdateCore.h"
 #include "Swap/Sota_SwapDiag.h"
+#include "IfxScuRcu.h"
+#include "IfxScuWdt.h"
 
 #ifndef NULL_PTR
 #define NULL_PTR ((void *)0)
@@ -46,6 +48,9 @@ typedef struct
 /*********************************************************************************************************************/
 
 static FotaHandlerContextType g_fotaHandlerContext;
+
+static volatile uint8 g_fotaResetRequested = 0U;
+static volatile uint32 g_fotaResetDelayTicks = 0U;
 
 /*********************************************************************************************************************/
 /*-----------------------------------------------Private Functions--------------------------------------------------*/
@@ -130,6 +135,9 @@ void FOTA_ResetContext(void)
 {
     (void)memset(&g_fotaHandlerContext, 0, sizeof(g_fotaHandlerContext));
     FOTA_SetDefaultsAfterMemset();
+
+    g_fotaResetRequested = 0U;
+    g_fotaResetDelayTicks = 0U;
 
     /* Reset the existing working Reprogram core software state only. */
     SotaUpdate_Reset();
@@ -383,6 +391,47 @@ Std_ReturnType FOTA_ActivateImage(void)
     g_fotaHandlerContext.activationArmed = 1U;
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ACTIVATION_ARMED;
     return E_OK;
+}
+
+Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
+{
+    /*
+     * Do not reset immediately inside DCM service processing.
+     * DCM should send the positive response first.
+     * Then this pending reset is executed in FOTA_ResetMainFunction().
+     */
+    g_fotaResetDelayTicks = delayTicks;
+    g_fotaResetRequested = 1U;
+
+    return E_OK;
+}
+
+void FOTA_ResetMainFunction(void)
+{
+    if (g_fotaResetRequested == 0U)
+    {
+        return;
+    }
+
+    if (g_fotaResetDelayTicks > 0U)
+    {
+        g_fotaResetDelayTicks--;
+        return;
+    }
+
+    g_fotaResetRequested = 0U;
+
+    /*
+     * Use a reset path that makes SSW run again.
+     * Exact enum names can differ slightly by iLLD version.
+     */
+    IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
+                           IfxScuRcu_ResetType_application);
+
+    while (1)
+    {
+        /* wait for reset */
+    }
 }
 
 FotaHandlerStateType FOTA_GetHandlerState(void)
