@@ -50,9 +50,6 @@ typedef struct
 
 static FotaHandlerContextType g_fotaHandlerContext;
 
-static volatile uint8 g_fotaResetRequested = 0U;
-static volatile uint32 g_fotaResetDelayTicks = 0U;
-
 /*********************************************************************************************************************/
 /*-----------------------------------------------Private Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -599,88 +596,24 @@ Std_ReturnType FOTA_ActivateImage(void)
     FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Armed\r\n");
     return E_OK;
 }
-
-Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
+Std_ReturnType FOTA_PerformSystemReset(void)
 {
     /*
-     * Do not reset immediately inside DCM service processing.
-     * DCM should send the positive response first.
-     * Then this pending reset is executed in FOTA_ResetMainFunction().
-     */
-    g_fotaResetDelayTicks = delayTicks;
-    g_fotaResetRequested = 1U;
-
-    return E_OK;
-}
-
-void FOTA_ResetMainFunction(void)
-{
-    if (g_fotaResetRequested == 0U)
-    {
-        return;
-    }
-
-    if (g_fotaResetDelayTicks > 0U)
-    {
-        g_fotaResetDelayTicks--;
-        return;
-    }
-
-    g_fotaResetRequested = 0U;
-
-    /*
-     * Use a reset path that makes SSW run again.
-     * Exact enum names can differ slightly by iLLD version.
+     * Call this only after the ECUReset positive response has been transmitted.
+     * This reset path must make SSW run again so that UCB_SWAP is evaluated.
      */
     IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           IfxScuRcu_ResetType_application);
+                           IfxScuRcu_ResetReason_application);
 
     while (1)
     {
         /* wait for reset */
     }
-}
 
-Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
-{
-    /*
-     * Do not reset immediately inside DCM service processing.
-     * DCM should send the positive response first.
-     * Then this pending reset is executed in FOTA_ResetMainFunction().
-     */
-    g_fotaResetDelayTicks = delayTicks;
-    g_fotaResetRequested = 1U;
-
+    /* Not reached */
     return E_OK;
 }
 
-void FOTA_ResetMainFunction(void)
-{
-    if (g_fotaResetRequested == 0U)
-    {
-        return;
-    }
-
-    if (g_fotaResetDelayTicks > 0U)
-    {
-        g_fotaResetDelayTicks--;
-        return;
-    }
-
-    g_fotaResetRequested = 0U;
-
-    /*
-     * Use a reset path that makes SSW run again.
-     * Exact enum names can differ slightly by iLLD version.
-     */
-    IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           IfxScuRcu_ResetType_application);
-
-    while (1)
-    {
-        /* wait for reset */
-    }
-}
 FotaHandlerStateType FOTA_GetHandlerState(void)
 {
     return g_fotaHandlerContext.handlerState;
