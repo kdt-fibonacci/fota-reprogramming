@@ -1,11 +1,31 @@
 *
 
 !/Ecu_Target_TC375_LK/
+!/Ecu_Target_TC375_LK/Apps/
+!/Ecu_Target_TC375_LK/Apps/**
 !/Ecu_Target_TC375_LK/Basics/
 !/Ecu_Target_TC375_LK/Basics/**
+!/Ecu_Target_TC375_LK/Configurations/
+!/Ecu_Target_TC375_LK/Configurations/**
+!/Ecu_Target_TC375_LK/Libraries/
+!/Ecu_Target_TC375_LK/Libraries/**
+!/Ecu_Target_TC375_LK/Tests/
+!/Ecu_Target_TC375_LK/Tests/**
+!/Ecu_Target_TC375_LK/Utils/
+!/Ecu_Target_TC375_LK/Utils/**
 
 !/Ecu_Gateway_TC375_LK/
+!/Ecu_Gateway_TC375_LK/Apps/
+!/Ecu_Gateway_TC375_LK/Apps/**
 !/Ecu_Gateway_TC375_LK/Basics/
 !/Ecu_Gateway_TC375_LK/Basics/**
+!/Ecu_Gateway_TC375_LK/Configurations/
+!/Ecu_Gateway_TC375_LK/Configurations/**
+!/Ecu_Gateway_TC375_LK/Libraries/
+!/Ecu_Gateway_TC375_LK/Libraries/**
+!/Ecu_Gateway_TC375_LK/Tests/
+!/Ecu_Gateway_TC375_LK/Tests/**
+!/Ecu_Gateway_TC375_LK/Utils/
+!/Ecu_Gateway_TC375_LK/Utils/**
 
 !.gitignore

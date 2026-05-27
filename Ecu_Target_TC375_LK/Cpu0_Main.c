@@ -21,7 +21,7 @@
 #include "PduR.h"
 #include "Dcm.h"
 
-#include "Shared_Util_Time.h"
+#include "Time.h"
 #include "Can_Cfg.h"
 
 /*********************************************************************************************************************/
