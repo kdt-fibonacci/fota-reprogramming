@@ -391,10 +391,6 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
 
     if (OpStatus == DCM_OP_PENDING)
     {
-//        FOTA_DEBUG_PRINTF(
-//            "[FOTA][TRANSFER] Pending poll ChunkState=%u\r\n",
-//            (unsigned int)g_fotaHandlerContext.chunkState
-//        );
 
         if (g_fotaHandlerContext.chunkState == FOTA_CHUNK_DONE)
         {
@@ -633,7 +629,7 @@ void FOTA_ResetMainFunction(void)
      * Exact enum names can differ slightly by iLLD version.
      */
     IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           IfxScuRcu_ResetType_application);
+                           0);
 
     while (1)
     {
