@@ -598,6 +598,8 @@ Std_ReturnType FOTA_ActivateImage(void)
 
 Std_ReturnType FOTA_PerformSystemReset(void)
 {
+    FOTA_DEBUG_PRINTF("[FOTA][RESET] Start\r\n");
+
     IfxScuRcu_performReset(IfxScuRcu_ResetType_system, 0u);
 
     while (1)

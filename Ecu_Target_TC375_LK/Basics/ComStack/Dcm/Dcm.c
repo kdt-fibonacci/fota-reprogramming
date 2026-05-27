@@ -567,6 +567,8 @@ static void Dcm_HandleEcuReset(
         ResponsePayload,
         1U
     );
+
+    FOTA_PerformSystemReset();
 }
 
 static void Dcm_HandleTesterPresent(
