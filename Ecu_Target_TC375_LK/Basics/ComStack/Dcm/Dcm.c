@@ -7,6 +7,8 @@
 
 #include "PduR.h"
 
+#include "../../Reprogram/FotaHandler.h"
+
 #include "Debug_Log.h"
 
 #include <string.h>
@@ -41,6 +43,8 @@ typedef struct
     PduLengthType TxLength;
 
     uint8 ExpectedBlockSequenceCounter;
+    boolean TransferWritePending;
+    uint8 PendingTransferBlockSequenceCounter;
 } Dcm_RuntimeType;
 
 /*********************************************************************************************************************/
@@ -130,6 +134,24 @@ static void Dcm_WriteUint24BigEndian(
     uint32 Value
 );
 
+static boolean Dcm_ParseUintBigEndian(
+    const uint8* DataPtr,
+    uint8 DataLength,
+    uint32* ValuePtr
+);
+
+static void Dcm_AdvanceBlockSequenceCounter(void);
+
+static void Dcm_CompleteTransferData(
+    uint8 BlockSequenceCounter
+);
+
+static void Dcm_FailTransferData(
+    uint8 Nrc
+);
+
+static void Dcm_ContinuePendingTransferData(void);
+
 static void Dcm_ResetFotaDownloadContext(void);
 
 static boolean Dcm_IsFotaDownloadStartState(
@@ -157,6 +179,10 @@ void Dcm_Init(void)
     Dcm_Runtime.CurrentRxPduId = DCM_RXPDU_DIAG_REQ;
 
     Dcm_Runtime.ExpectedBlockSequenceCounter = 1U;
+    Dcm_Runtime.TransferWritePending = FALSE;
+    Dcm_Runtime.PendingTransferBlockSequenceCounter = 0U;
+
+    FOTA_ResetContext();
 }
 
 void Dcm_RxIndication(
@@ -175,6 +201,12 @@ void Dcm_RxIndication(
     }
 
     if (PduInfoPtr->SduLength > DCM_RX_BUFFER_SIZE)
+    {
+        return;
+    }
+
+    if ((Dcm_Runtime.RequestState == DCM_REQUEST_PENDING) ||
+        (Dcm_Runtime.TransferWritePending == TRUE))
     {
         return;
     }
@@ -255,6 +287,14 @@ void Dcm_TxConfirmation(
 
 void Dcm_MainFunction(void)
 {
+    FOTAHandlerMain();
+
+    if (Dcm_Runtime.TransferWritePending == TRUE)
+    {
+        Dcm_ContinuePendingTransferData();
+        return;
+    }
+
     if (Dcm_Runtime.RequestState == DCM_REQUEST_PENDING)
     {
         Dcm_ProcessRequest();
@@ -577,6 +617,13 @@ static void Dcm_HandleRequestDownload(
 )
 {
     uint8 ResponsePayload[4];
+    uint8 AddressAndLengthFormatIdentifier;
+    uint8 AddressLength;
+    uint8 SizeLength;
+    PduLengthType RequiredLength;
+    uint32 DownloadAddressOrCrc;
+    uint32 ImageLength;
+    uint32 ExpectedCrc;
 
     /*
      * 최소 형식만 검사한다.
@@ -588,7 +635,7 @@ static void Dcm_HandleRequestDownload(
      * memoryAddress
      * memorySize
      *
-     * 로 구성되지만, 지금은 프로젝트 테스트용으로 상세 memoryAddress 해석은 생략한다.
+     * 로 구성된다.
      */
     if (RequestLength < 5U)
     {
@@ -617,7 +664,73 @@ static void Dcm_HandleRequestDownload(
         return;
     }
 
+    AddressAndLengthFormatIdentifier = RequestDataPtr[2];
+    AddressLength = (uint8)(AddressAndLengthFormatIdentifier & 0x0FU);
+    SizeLength = (uint8)((AddressAndLengthFormatIdentifier >> 4U) & 0x0FU);
+
+    if ((AddressLength == 0U) ||
+        (AddressLength > 4U) ||
+        (SizeLength == 0U) ||
+        (SizeLength > 4U))
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_REQUEST_OUT_OF_RANGE
+        );
+        return;
+    }
+
+    RequiredLength = (PduLengthType)(3U + AddressLength + SizeLength);
+    if ((RequestLength != RequiredLength) &&
+        (RequestLength != (PduLengthType)(RequiredLength + 4U)))
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_INCORRECT_MESSAGE_LENGTH
+        );
+        return;
+    }
+
+    if ((Dcm_ParseUintBigEndian(&RequestDataPtr[3], AddressLength, &DownloadAddressOrCrc) == FALSE) ||
+        (Dcm_ParseUintBigEndian(&RequestDataPtr[3U + AddressLength], SizeLength, &ImageLength) == FALSE))
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_REQUEST_OUT_OF_RANGE
+        );
+        return;
+    }
+
+    /*
+     * SotaUpdate_Begin() requires the expected CRC before receiving chunks.
+     * This adapter uses memoryAddress as the CRC value by default because the
+     * inactive bank address is selected inside Sota_UpdateCore. If an extra
+     * 4-byte value follows the standard RequestDownload fields, it overrides
+     * memoryAddress and is used as expected CRC.
+     */
+    ExpectedCrc = DownloadAddressOrCrc;
+    if (RequestLength == (PduLengthType)(RequiredLength + 4U))
+    {
+        (void)Dcm_ParseUintBigEndian(
+            &RequestDataPtr[RequiredLength],
+            4U,
+            &ExpectedCrc
+        );
+    }
+
     Dcm_ResetFotaDownloadContext();
+
+    if (FOTA_StartDownload(ImageLength, ExpectedCrc) != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_DOWNLOAD_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+        );
+        return;
+    }
 
     Dcm_Runtime.FotaState = DCM_FOTA_STATE_DOWNLOAD_ACCEPTED;
     Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_NONE;
@@ -649,7 +762,7 @@ static void Dcm_HandleTransferData(
 )
 {
     uint8 BlockSequenceCounter;
-    uint8 ResponsePayload[1];
+    Dcm_ReturnWriteMemoryType WriteResult;
 
     if (RequestLength < 2U)
     {
@@ -694,27 +807,30 @@ static void Dcm_HandleTransferData(
     }
 
     /*
-     * 실제 구현에서는 여기서 RequestDataPtr[2]부터 flash write buffer로 넘긴다.
-     * 현재는 데이터 수신 성공으로만 처리한다.
+     * UDS TransferData payload is 0x36 [blockSequenceCounter] [data...].
+     * Only the firmware chunk beginning at RequestDataPtr[2] is passed down.
      */
-    Dcm_Runtime.FotaState = DCM_FOTA_STATE_TRANSFER_IN_PROGRESS;
+    WriteResult = FOTA_ProcessTransferDataWrite(
+        DCM_OP_INITIAL,
+        &RequestDataPtr[2],
+        (uint32)(RequestLength - 2U),
+        BlockSequenceCounter
+    );
 
-    if (Dcm_Runtime.ExpectedBlockSequenceCounter == DCM_MAX_BLOCK_SEQUENCE_COUNTER)
+    if (WriteResult == DCM_WRITE_OK)
     {
-        Dcm_Runtime.ExpectedBlockSequenceCounter = 0U;
+        Dcm_CompleteTransferData(BlockSequenceCounter);
+    }
+    else if (WriteResult == DCM_WRITE_PENDING)
+    {
+        Dcm_Runtime.TransferWritePending = TRUE;
+        Dcm_Runtime.PendingTransferBlockSequenceCounter = BlockSequenceCounter;
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_TRANSFER_IN_PROGRESS;
     }
     else
     {
-        Dcm_Runtime.ExpectedBlockSequenceCounter++;
+        Dcm_FailTransferData(DCM_NRC_GENERAL_PROGRAMMING_FAILURE);
     }
-
-    ResponsePayload[0] = BlockSequenceCounter;
-
-    Dcm_SendPositiveResponse(
-        DCM_SID_TRANSFER_DATA,
-        ResponsePayload,
-        1U
-    );
 }
 
 static void Dcm_HandleRequestTransferExit(
@@ -738,6 +854,18 @@ static void Dcm_HandleRequestTransferExit(
         Dcm_SendNegativeResponse(
             DCM_SID_REQUEST_TRANSFER_EXIT,
             DCM_NRC_REQUEST_SEQUENCE_ERROR
+        );
+        return;
+    }
+
+    if (FOTA_RequestTransferExit() != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_TRANSFER_EXIT,
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
         );
         return;
     }
@@ -798,9 +926,20 @@ static void Dcm_HandleRoutineControl(
             }
 
             /*
-             * 실제 구현에서는 이미지 해시/CRC/서명 검증을 수행해야 한다.
-             * 현재는 검증 성공으로 가정한다.
+             * Verification is delegated to the Reprogram update core.
              */
+            if (FOTA_VerifyImage() != E_OK)
+            {
+                Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+                Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_VERIFY_FAILED;
+
+                Dcm_SendNegativeResponse(
+                    DCM_SID_ROUTINE_CONTROL,
+                    DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+                );
+                return;
+            }
+
             Dcm_Runtime.FotaState = DCM_FOTA_STATE_VERIFIED;
 
             break;
@@ -818,9 +957,20 @@ static void Dcm_HandleRoutineControl(
             }
 
             /*
-             * 실제 구현에서는 부트 플래그 변경, A/B partition 선택 등을 수행한다.
-             * 현재는 activation pending 상태로만 둔다.
+             * Swap arming is delegated to the existing Reprogram swap layer.
              */
+            if (FOTA_ArmSwap() != E_OK)
+            {
+                Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+                Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_ACTIVATION_FAILED;
+
+                Dcm_SendNegativeResponse(
+                    DCM_SID_ROUTINE_CONTROL,
+                    DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+                );
+                return;
+            }
+
             Dcm_Runtime.FotaState = DCM_FOTA_STATE_ACTIVATION_PENDING;
 
             break;
@@ -1013,6 +1163,32 @@ static Std_ReturnType Dcm_SendResponse(
 /*------------------------------------------------Utility Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
 
+static boolean Dcm_ParseUintBigEndian(
+    const uint8* DataPtr,
+    uint8 DataLength,
+    uint32* ValuePtr
+)
+{
+    uint8 Index;
+    uint32 Value = 0U;
+
+    if ((DataPtr == NULL_PTR) ||
+        (ValuePtr == NULL_PTR) ||
+        (DataLength == 0U) ||
+        (DataLength > 4U))
+    {
+        return FALSE;
+    }
+
+    for (Index = 0U; Index < DataLength; Index++)
+    {
+        Value = (uint32)((Value << 8U) | DataPtr[Index]);
+    }
+
+    *ValuePtr = Value;
+    return TRUE;
+}
+
 static uint16 Dcm_ParseUint16BigEndian(
     const uint8* DataPtr
 )
@@ -1040,11 +1216,91 @@ static void Dcm_WriteUint24BigEndian(
     DataPtr[2] = (uint8)(Value & 0xFFU);
 }
 
+static void Dcm_AdvanceBlockSequenceCounter(void)
+{
+    if (Dcm_Runtime.ExpectedBlockSequenceCounter == DCM_MAX_BLOCK_SEQUENCE_COUNTER)
+    {
+        Dcm_Runtime.ExpectedBlockSequenceCounter = 0U;
+    }
+    else
+    {
+        Dcm_Runtime.ExpectedBlockSequenceCounter++;
+    }
+}
+
+static void Dcm_CompleteTransferData(
+    uint8 BlockSequenceCounter
+)
+{
+    uint8 ResponsePayload[1];
+
+    Dcm_Runtime.TransferWritePending = FALSE;
+    Dcm_Runtime.PendingTransferBlockSequenceCounter = 0U;
+    Dcm_Runtime.FotaState = DCM_FOTA_STATE_TRANSFER_IN_PROGRESS;
+
+    Dcm_AdvanceBlockSequenceCounter();
+
+    ResponsePayload[0] = BlockSequenceCounter;
+
+    Dcm_SendPositiveResponse(
+        DCM_SID_TRANSFER_DATA,
+        ResponsePayload,
+        1U
+    );
+}
+
+static void Dcm_FailTransferData(
+    uint8 Nrc
+)
+{
+    Dcm_Runtime.TransferWritePending = FALSE;
+    Dcm_Runtime.PendingTransferBlockSequenceCounter = 0U;
+    Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+    Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
+
+    Dcm_SendNegativeResponse(
+        DCM_SID_TRANSFER_DATA,
+        Nrc
+    );
+}
+
+static void Dcm_ContinuePendingTransferData(void)
+{
+    Dcm_ReturnWriteMemoryType WriteResult;
+    uint8 BlockSequenceCounter;
+
+    BlockSequenceCounter = Dcm_Runtime.PendingTransferBlockSequenceCounter;
+
+    WriteResult = FOTA_ProcessTransferDataWrite(
+        DCM_OP_PENDING,
+        NULL_PTR,
+        0U,
+        BlockSequenceCounter
+    );
+
+    if (WriteResult == DCM_WRITE_OK)
+    {
+        Dcm_CompleteTransferData(BlockSequenceCounter);
+    }
+    else if (WriteResult == DCM_WRITE_FAILED)
+    {
+        Dcm_FailTransferData(DCM_NRC_GENERAL_PROGRAMMING_FAILURE);
+    }
+    else
+    {
+        /* Keep waiting for FOTAHandlerMain() to complete the registered chunk. */
+    }
+}
+
 static void Dcm_ResetFotaDownloadContext(void)
 {
     Dcm_Runtime.ExpectedBlockSequenceCounter = 1U;
+    Dcm_Runtime.TransferWritePending = FALSE;
+    Dcm_Runtime.PendingTransferBlockSequenceCounter = 0U;
     Dcm_Runtime.FotaIdleTransitionPending = FALSE;
     Dcm_Runtime.FotaReportPending = FALSE;
+
+    FOTA_ResetContext();
 }
 
 static boolean Dcm_IsFotaDownloadStartState(

@@ -1,65 +1,76 @@
-#ifndef SOTA_UPDATECORE_H_
-#define SOTA_UPDATECORE_H_
+#ifndef SOTA_UPDATE_CORE_H
+#define SOTA_UPDATE_CORE_H 1
 
-#include "Ifx_Types.h"
+#include <Ifx_Types.h>
 
-typedef enum
-{
-    SOTA_UPDATECORE_RESULT_OK = 0,
-    SOTA_UPDATECORE_RESULT_PENDING,
-    SOTA_UPDATECORE_RESULT_INVALID_STATE,
-    SOTA_UPDATECORE_RESULT_INVALID_PARAM,
-    SOTA_UPDATECORE_RESULT_INVALID_RANGE,
-    SOTA_UPDATECORE_RESULT_CRC_ERROR,
-    SOTA_UPDATECORE_RESULT_FLASH_ERROR,
-    SOTA_UPDATECORE_RESULT_VERIFY_ERROR,
-    SOTA_UPDATECORE_RESULT_INTERNAL_ERROR
-} SotaUpdateCore_Result_t;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum
 {
-    SOTA_UPDATECORE_STATE_IDLE = 0,
-    SOTA_UPDATECORE_STATE_PREPARED,
-    SOTA_UPDATECORE_STATE_ERASING,
-    SOTA_UPDATECORE_STATE_ERASED,
-    SOTA_UPDATECORE_STATE_WRITING,
-    SOTA_UPDATECORE_STATE_FINALIZED,
-    SOTA_UPDATECORE_STATE_VERIFYING,
-    SOTA_UPDATECORE_STATE_VERIFIED,
-    SOTA_UPDATECORE_STATE_ERROR
-} SotaUpdateCore_State_t;
+    SOTA_UPDATE_STATE_IDLE = 0,
+    SOTA_UPDATE_STATE_ERASING,
+    SOTA_UPDATE_STATE_RECEIVING,
+    SOTA_UPDATE_STATE_PROGRAMMING,
+    SOTA_UPDATE_STATE_VERIFYING,
+    SOTA_UPDATE_STATE_VERIFIED,
+    SOTA_UPDATE_STATE_ERROR
+} SotaUpdateState_t;
+
+typedef enum
+{
+    SOTA_UPDATE_OK = 0,
+    SOTA_UPDATE_INVALID_PARAM,
+    SOTA_UPDATE_INVALID_LENGTH,
+    SOTA_UPDATE_INVALID_BANK,
+    SOTA_UPDATE_ERASE_FAILED,
+    SOTA_UPDATE_PROGRAM_FAILED,
+    SOTA_UPDATE_VERIFY_FAILED,
+    SOTA_UPDATE_CRC_FAILED,
+    SOTA_UPDATE_RESULT_STATE_ERROR
+} SotaUpdateResult_t;
 
 typedef struct
 {
-    SotaUpdateCore_State_t state;
-    uint8 targetBank;
-    uint32 inactiveBankBase;
-    uint32 inactiveBankSize;
-    uint32 imageSize;
-    uint32 expectedImageCrc;
-    uint32 eraseBytes;
-    uint32 erasedBytes;
+    uint32 inactiveBase;
+    uint32 inactiveEnd;
+
+    uint32 imageLength;
+    uint32 expectedCrc;
+    uint32 actualCrc;
+
+    uint32 paddedImageLength;
+    uint32 sectorCount;
+    uint32 eraseSize;
+    uint32 eraseStart;
+    uint32 eraseEnd;
+
     uint32 receivedBytes;
     uint32 programmedBytes;
-    uint32 verifiedBytes;
-    uint32 lastError;
-} SotaUpdateCore_Progress_t;
+    uint32 currentPageFill;
 
-/*
- * These APIs perform or schedule flash-sensitive work. Call them only from
- * background/runtime context such as SotaUpdateManager_RunStep(), never from a
- * CAN-FD RX ISR path.
- */
-SotaUpdateCore_Result_t SotaUpdateCore_Prepare(uint32 imageSize,
-                                               uint32 expectedImageCrc);
-SotaUpdateCore_Result_t SotaUpdateCore_EraseStep(void);
-SotaUpdateCore_Result_t SotaUpdateCore_WriteChunk(uint32 offset,
-                                                  const uint8 *data,
-                                                  uint32 length,
-                                                  uint32 chunkCrc);
-SotaUpdateCore_Result_t SotaUpdateCore_VerifyStep(void);
-SotaUpdateCore_Result_t SotaUpdateCore_Finalize(void);
-SotaUpdateCore_Result_t SotaUpdateCore_Abort(void);
-void SotaUpdateCore_GetProgress(SotaUpdateCore_Progress_t *outProgress);
+    uint32 eraseResult;
+    uint32 programFailOffset;
+    uint32 verifyFailOffset;
+    uint32 finalizeResult;
 
-#endif /* SOTA_UPDATECORE_H_ */
+    uint32 dmuErrAfterErase;
+    uint32 dmuErrAfterProgram;
+
+    uint32 state;
+    uint32 done;
+} SotaUpdateDebug_t;
+
+void SotaUpdate_Reset(void);
+SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength, uint32 expectedCrc);
+SotaUpdateResult_t SotaUpdate_WriteChunk(const uint8 *data, uint32 len);
+SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(void);
+SotaUpdateState_t SotaUpdate_GetState(void);
+const SotaUpdateDebug_t *SotaUpdate_GetDebug(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* SOTA_UPDATE_CORE_H */

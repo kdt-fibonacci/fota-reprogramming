@@ -1,92 +1,91 @@
-#ifndef SOTA_FLASHTC37X_H_
-#define SOTA_FLASHTC37X_H_
+/**
+ * \file Sota_FlashTc37x.h
+ * \brief TC37x-safe SOTA flash helpers.
+ *
+ * \version iLLD_Demos_1_0_1_10_0
+ * \copyright Copyright (c) 2014 Infineon Technologies AG. All rights reserved.
+ *
+ *
+ *                                 IMPORTANT NOTICE
+ *
+ *
+ * Infineon Technologies AG (Infineon) is supplying this file for use
+ * exclusively with Infineon's microcontroller products. This file can be freely
+ * distributed within development tools that are supporting such microcontroller
+ * products.
+ *
+ * THIS SOFTWARE IS PROVIDED "AS IS".  NO WARRANTIES, WHETHER EXPRESS, IMPLIED
+ * OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE APPLY TO THIS SOFTWARE.
+ * INFINEON SHALL NOT, IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL,
+ * OR CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
+ *
+ * \defgroup IfxLld_Demo_FlashDemo_SrcDoc_Main Demo Source
+ * \ingroup IfxLld_Demo_FlashDemo_SrcDoc
+ * \defgroup IfxLld_Demo_FlashDemo_SrcDoc_Main_Interrupt Interrupts
+ * \ingroup IfxLld_Demo_FlashDemo_SrcDoc_Main
+ */
 
-#include "Ifx_Types.h"
+#ifndef SOTA_FLASH_TC37X_H
+#define SOTA_FLASH_TC37X_H 1
 
-#include "../Config/Sota_Tc37x_Config.h"
+/******************************************************************************/
+/*----------------------------------Includes----------------------------------*/
+/******************************************************************************/
+#include <Ifx_Types.h>
+#include <IfxFlash.h>
 
-#ifndef SOTA_FLASH_BANK0_START_ADDR
-#define SOTA_FLASH_BANK0_START_ADDR        SOTA_TC37X_PFLASH_BANK0_SYSTEM_START
-#endif
+/******************************************************************************/
+/*-----------------------------------Macros-----------------------------------*/
+/******************************************************************************/
+#define UCB_SWAP_ORIG_NO   23
+#define UCB_SWAP_COPY_NO   31
 
-#ifndef SOTA_FLASH_BANK1_START_ADDR
-#define SOTA_FLASH_BANK1_START_ADDR        SOTA_TC37X_PFLASH_BANK1_SYSTEM_START
-#endif
+#define UCB_OTP_ORIG_NO         32
+#define UCB_OTP_COPY_NO         40
 
-#ifndef SOTA_FLASH_BANK_SIZE_BYTE
-#define SOTA_FLASH_BANK_SIZE_BYTE          SOTA_TC37X_PFLASH_BANK_SIZE_BYTE
-#endif
+#define UCB_UNLOCKED_CODE     0x43211234
+#define UCB_CONFIRMED_CODE    0x57B5327F
 
-#ifndef SOTA_FLASH_PFLASH_PAGE_SIZE_BYTE
-#define SOTA_FLASH_PFLASH_PAGE_SIZE_BYTE   SOTA_TC37X_PFLASH_PAGE_SIZE_BYTE
-#endif
+#define SOTA_FLASH_HAS_VALIDATE_PFLASH_WRITE 1
 
-#ifndef SOTA_FLASH_PFLASH_SECTOR_SIZE_BYTE
-#define SOTA_FLASH_PFLASH_SECTOR_SIZE_BYTE SOTA_TC37X_PFLASH_SECTOR_SIZE_BYTE
-#endif
-
-#ifndef SOTA_FLASH_ACTIVE_BANK_OVERRIDE
-#define SOTA_FLASH_ACTIVE_BANK_OVERRIDE    SOTA_TC37X_ACTIVE_BANK_OVERRIDE
-#endif
-
-#ifndef SOTA_FLASH_BUSY_WAIT_LOOP_COUNT
-#define SOTA_FLASH_BUSY_WAIT_LOOP_COUNT    (0x00FFFFFFU)
-#endif
-
+/******************************************************************************/
+/*--------------------------------Enumerations--------------------------------*/
+/******************************************************************************/
 typedef enum
 {
-    SOTA_FLASH_RESULT_OK = 0,
-    SOTA_FLASH_RESULT_INVALID_PARAM,
-    SOTA_FLASH_RESULT_INVALID_ADDRESS,
-    SOTA_FLASH_RESULT_INVALID_LENGTH,
-    SOTA_FLASH_RESULT_INVALID_RANGE,
-    SOTA_FLASH_RESULT_ACTIVE_BANK_ACCESS,
-    SOTA_FLASH_RESULT_ACTIVE_BANK = SOTA_FLASH_RESULT_ACTIVE_BANK_ACCESS,
-    SOTA_FLASH_RESULT_FLASH_BUSY_TIMEOUT,
-    SOTA_FLASH_RESULT_HARDWARE_ERROR,
-    SOTA_FLASH_RESULT_VERIFY_ERROR,
-    SOTA_FLASH_RESULT_UNSUPPORTED
-} SotaFlash_Result_t;
+    FLASH_RESULT_OK = 0u,
+    FLASH_RESULT_INVALID_FLASH = 1u,
+    FLASH_RESULT_UNSUPPORTED_FLASH_TYPE = 2u,
+    FLASH_RESULT_INVALID_PFLASH_RANGE = 3u,
+    FLASH_RESULT_ACTIVE_BANK = 4u,
+    FLASH_RESULT_BANK_BOUNDARY = 5u,
+    FLASH_RESULT_FLASH_TYPE_MISMATCH = 6u,
+    FLASH_RESULT_ENTER_PAGE_MODE_FAILED = 7u,
+    FLASH_RESULT_DMU_ERROR = 8u,
+    FLASH_RESULT_UCB_WRITE_DISABLED = 9u,
+    FLASH_RESULT_DFLASH_PROGRAM_UNSUPPORTED = 10u,
+    FLASH_RESULT_ACTIVE_BANK_UNKNOWN = 11u,
+    FLASH_RESULT_INVALID_DFLASH_RANGE = 12u
+} FlashResult;
 
-typedef enum
-{
-    SOTA_FLASH_BANK_PF0 = 0,
-    SOTA_FLASH_BANK_PF1 = 1,
-    SOTA_FLASH_BANK_UNKNOWN = 0xFF
-} SotaFlash_Bank_t;
+/******************************************************************************/
+/*-----------------------------Data Structures--------------------------------*/
+/******************************************************************************/
 
-SotaFlash_Bank_t SotaFlash_GetBankByAddress(uint32 address);
-SotaFlash_Bank_t SotaFlash_GetActiveBank(void);
-SotaFlash_Bank_t SotaFlash_GetInactiveBank(void);
-uint32 SotaFlash_GetBankStart(SotaFlash_Bank_t bank);
-uint32 SotaFlash_GetBankEnd(SotaFlash_Bank_t bank);
-uint32 SotaFlash_GetBankSize(SotaFlash_Bank_t bank);
-uint32 SotaFlash_GetInactiveBankStart(void);
-uint32 SotaFlash_GetInactiveBankEnd(void);
-uint32 SotaFlash_GetInactiveBankSize(void);
-uint32 SotaFlash_GetPflashPageSize(void);
-uint32 SotaFlash_GetPflashSectorSize(void);
-uint32 SotaFlash_NormalizePflashAddress(uint32 address);
-boolean SotaFlash_IsAddressRangeInsideInactiveBank(uint32 address,
-                                                   uint32 length);
+/******************************************************************************/
+/*-------------------------Function Prototypes--------------------------------*/
+/******************************************************************************/
+extern uint8 SotaFlash_EraseSector(uint32 flash, uint32 sector_addr, IfxFlash_FlashType flashType);
+extern uint8 SotaFlash_ProgramPage256(uint32 flash, uint32 page_addr, uint8 *pData, IfxFlash_FlashType flashType);
+extern uint8 SotaFlash_ProgramPage32(uint32 flash, uint32 page_addr, uint8 *pData, IfxFlash_FlashType flashType);
+extern uint8 SotaFlash_ProgramPage8(uint32 flash, uint32 page_addr, uint8 *pData, IfxFlash_FlashType flashType);
+extern uint8 SotaFlash_ProgramDflashPage8(uint32 pageAddr, const uint32 data[2]);
+extern uint8 SotaFlash_ProgramUcb(uint32 flash, uint8 *pData, uint8 ucb_no);
+extern uint8 SotaFlash_ProgramUcbSwapEntry(uint32 flash, uint8 *pData, uint8 ucb_no, uint8 entry_no);
+extern uint8 SotaFlash_EraseUcb(uint32 flash, uint8 ucb_no);
+extern uint8 SotaFlash_ReadUcb(uint32 flash, uint8 *pData, uint8 ucb_no, uint32 size);
+extern void SotaFlash_CopyPflashRoutinesToPspr(void);
+FlashResult SotaFlash_ValidatePflashWrite(uint32 addr, uint32 len);
 
-SotaFlash_Result_t SotaFlash_CopyPflashRoutinesToPspr(void);
-SotaFlash_Result_t SotaFlash_ValidateInactivePflashRange(uint32 address,
-                                                         uint32 length);
-SotaFlash_Result_t SotaFlash_EraseSector(uint32 sectorAddress);
-SotaFlash_Result_t SotaFlash_ProgramPage32(uint32 pageAddress,
-                                           const uint8 *pageData);
-SotaFlash_Result_t SotaFlash_Read(uint32 address,
-                                  uint8 *outData,
-                                  uint32 length);
-SotaFlash_Result_t SotaFlash_GetUcbStart(uint8 ucbIndex,
-                                         uint32 *outStartAddress);
-SotaFlash_Result_t SotaFlash_ReadUcb(uint8 ucbIndex,
-                                     uint32 offset,
-                                     uint8 *outData,
-                                     uint32 length);
-SotaFlash_Result_t SotaFlash_ProgramUcbSwapPage8(uint8 ucbIndex,
-                                                 uint32 offset,
-                                                 const uint8 *pageData);
-
-#endif /* SOTA_FLASHTC37X_H_ */
+#endif /* SOTA_FLASH_TC37X_H */
