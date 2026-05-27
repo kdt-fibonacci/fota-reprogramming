@@ -63,9 +63,9 @@ typedef struct
 } SotaUpdateDebug_t;
 
 void SotaUpdate_Reset(void);
-SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength, uint32 expectedCrc);
+SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength);
 SotaUpdateResult_t SotaUpdate_WriteChunk(const uint8 *data, uint32 len);
-SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(void);
+SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(uint32 expectedCrc);
 SotaUpdateState_t SotaUpdate_GetState(void);
 const SotaUpdateDebug_t *SotaUpdate_GetDebug(void);
 

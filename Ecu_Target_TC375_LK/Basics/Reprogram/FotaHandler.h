@@ -96,10 +96,10 @@ Std_ReturnType FOTA_RunInitialProvisioningOnce(void);
 
 /*
  * RequestDownload(0x34) wrapper.
- * DCM should pass the image length and expected whole-image CRC extracted from the download request/metadata.
- * Internally calls SotaUpdate_Reset() and SotaUpdate_Begin(imageLength, expectedCrc).
+ * DCM should pass the image length extracted from the download request/metadata.
+ * Internally calls SotaUpdate_Reset() and SotaUpdate_Begin(imageLength).
  */
-Std_ReturnType FOTA_StartDownload(uint32 imageLength, uint32 expectedCrc);
+Std_ReturnType FOTA_StartDownload(uint32 imageLength);
 
 /*
  * TransferData(0x36) write callout.
@@ -126,10 +126,10 @@ void FOTAHandlerMain(void);
 
 /*
  * RequestTransferExit(0x37) / verify wrapper.
- * Internally calls SotaUpdate_FinalizeAndVerify().
+ * Internally calls SotaUpdate_FinalizeAndVerify(expectedCrc).
  */
-Std_ReturnType FOTA_RequestTransferExit(void);
-Std_ReturnType FOTA_VerifyImage(void);
+Std_ReturnType FOTA_RequestTransferExit(uint32 expectedCrc);
+Std_ReturnType FOTA_VerifyImage(uint32 expectedCrc);
 
 /*
  * Activation / swap-arm wrapper.

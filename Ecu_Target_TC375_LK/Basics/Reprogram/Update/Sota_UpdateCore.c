@@ -121,7 +121,7 @@ void SotaUpdate_Reset(void)
     SotaUpdate_SetState(SOTA_UPDATE_STATE_IDLE);
 }
 
-SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength, uint32 expectedCrc)
+SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength)
 {
     uint32 endAddr;
     uint32 eraseAddr;
@@ -130,9 +130,7 @@ SotaUpdateResult_t SotaUpdate_Begin(uint32 imageLength, uint32 expectedCrc)
 
     SotaUpdate_Reset();
     sotaUpdate.imageLength = imageLength;
-    sotaUpdate.expectedCrc = expectedCrc;
     sotaUpdate.debug.imageLength = imageLength;
-    sotaUpdate.debug.expectedCrc = expectedCrc;
 
     if ((imageLength == 0u) ||
         (imageLength > TC37X_PFLASH_BANK_SIZE) ||
@@ -258,7 +256,7 @@ SotaUpdateResult_t SotaUpdate_WriteChunk(const uint8 *data, uint32 len)
     return SOTA_UPDATE_OK;
 }
 
-SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(void)
+SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(uint32 expectedCrc)
 {
     SotaUpdateResult_t result;
 
@@ -291,6 +289,9 @@ SotaUpdateResult_t SotaUpdate_FinalizeAndVerify(void)
     SotaUpdate_SetState(SOTA_UPDATE_STATE_VERIFYING);
     sotaUpdate.debug.actualCrc = crc32(0u, (const uint8 *)sotaUpdate.inactiveBase, sotaUpdate.imageLength);
     sotaUpdate.debug.currentPageFill = sotaUpdate.currentPageFill;
+
+    sotaUpdate.expectedCrc = expectedCrc;
+    sotaUpdate.debug.expectedCrc = expectedCrc;
     SotaUpdate_UpdateProgressDebug();
 
     if (sotaUpdate.debug.actualCrc != sotaUpdate.expectedCrc)

@@ -157,7 +157,7 @@ Std_ReturnType FOTA_RunInitialProvisioningOnce(void)
     return FOTA_ProvisionInitialOnce();
 }
 
-Std_ReturnType FOTA_StartDownload(uint32 imageLength, uint32 expectedCrc)
+Std_ReturnType FOTA_StartDownload(uint32 imageLength)
 {
     SotaUpdateResult_t result;
 
@@ -171,7 +171,7 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength, uint32 expectedCrc)
     /* A new RequestDownload starts a new update attempt. */
     FOTA_ResetContext();
 
-    result = SotaUpdate_Begin(imageLength, expectedCrc);
+    result = SotaUpdate_Begin(imageLength);
     g_fotaHandlerContext.lastUpdateResult = result;
 
     if (result != SOTA_UPDATE_OK)
@@ -182,7 +182,7 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength, uint32 expectedCrc)
     }
 
     g_fotaHandlerContext.expectedImageLength = imageLength;
-    g_fotaHandlerContext.expectedImageCrc = expectedCrc;
+    g_fotaHandlerContext.expectedImageCrc = 0U;
     g_fotaHandlerContext.totalReceivedBytes = 0U;
     g_fotaHandlerContext.downloadStarted = 1U;
     g_fotaHandlerContext.verified = 0U;
@@ -309,7 +309,7 @@ void FOTAHandlerMain(void)
     }
 }
 
-Std_ReturnType FOTA_RequestTransferExit(void)
+Std_ReturnType FOTA_RequestTransferExit(uint32 expectedCrc)
 {
     SotaUpdateResult_t result;
 
@@ -325,12 +325,14 @@ Std_ReturnType FOTA_RequestTransferExit(void)
         return E_NOT_OK;
     }
 
+    g_fotaHandlerContext.expectedImageCrc = expectedCrc;
+
     if (g_fotaHandlerContext.verified != 0U)
     {
         return E_OK;
     }
 
-    result = SotaUpdate_FinalizeAndVerify();
+    result = SotaUpdate_FinalizeAndVerify(expectedCrc);
 
     if (FOTA_MapUpdateResult(result, FOTA_HANDLER_RESULT_VERIFY_FAILED) != E_OK)
     {
@@ -342,9 +344,9 @@ Std_ReturnType FOTA_RequestTransferExit(void)
     return E_OK;
 }
 
-Std_ReturnType FOTA_VerifyImage(void)
+Std_ReturnType FOTA_VerifyImage(uint32 expectedCrc)
 {
-    return FOTA_RequestTransferExit();
+    return FOTA_RequestTransferExit(expectedCrc);
 }
 
 Std_ReturnType FOTA_ActivateImage(void)
