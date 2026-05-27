@@ -15,7 +15,8 @@
      (DEBUG_PDUR_ENABLE == 1U) ||      \
      (DEBUG_DCM_ENABLE == 1U) ||       \
      (DEBUG_DOIP_ENABLE == 1U) ||      \
-     (DEBUG_SOAD_ENABLE == 1U))
+     (DEBUG_SOAD_ENABLE == 1U) ||      \
+     (DEBUG_FOTA_ENABLE == 1U))
 #include "UART.h"
 #endif
 
@@ -353,6 +354,27 @@
     {                                                               \
         (void)(prefix);                                             \
         (void)(pduInfoPtr);                                         \
+    } while (0)
+
+#endif
+
+/*********************************************************************************************************************/
+/*--------------------------------------------------FOTA Debug Macros------------------------------------------------*/
+/*********************************************************************************************************************/
+
+#if (DEBUG_FOTA_ENABLE == 1U)
+
+#define FOTA_DEBUG_PRINTF(...)                                       \
+    do                                                              \
+    {                                                               \
+        UART_Printf(__VA_ARGS__);                                   \
+    } while (0)
+
+#else
+
+#define FOTA_DEBUG_PRINTF(...)                                       \
+    do                                                              \
+    {                                                               \
     } while (0)
 
 #endif

@@ -21,6 +21,8 @@
 #include "PduR.h"
 #include "Dcm.h"
 
+#include "FotaHandler.h"
+
 #include "Time.h"
 #include "Can_Cfg.h"
 
@@ -87,6 +89,7 @@ static void Test_InitModules(void)
     CanTp_Init();
     PduR_Init();
     Dcm_Init();
+    FOTA_ProvisionInitialOnce();
 }
 
 static void Test_MainFunctions(void)
@@ -106,4 +109,6 @@ static void Test_MainFunctions(void)
     Dcm_MainFunction();
 
     Can_MainFunction_Write();
+
+    FOTAHandlerMain();
 }

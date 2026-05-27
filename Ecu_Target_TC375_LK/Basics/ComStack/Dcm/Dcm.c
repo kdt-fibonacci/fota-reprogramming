@@ -3,11 +3,13 @@
 /*********************************************************************************************************************/
 
 #include "Dcm.h"
-#include "Dcm_cfg.h"
+#include "Dcm_Cfg.h"
 
 #include "PduR.h"
 
 #include "Debug_Log.h"
+
+#include "FotaHandler.h"
 
 #include <string.h>
 
@@ -17,8 +19,9 @@
 
 typedef enum
 {
-    DCM_REQUEST_IDLE = 0U,
-    DCM_REQUEST_PENDING
+    DCM_REQUEST_IDLE = 0U, // 처리 중인 요청 없음
+    DCM_REQUEST_NEW,       // 새 요청이 RxBuffer에 들어옴
+    DCM_REQUEST_PROCESSING // 이전 요청이 아직 처리 중
 } Dcm_RequestStateType;
 
 typedef struct
@@ -53,9 +56,12 @@ static Dcm_RuntimeType Dcm_Runtime;
 /*------------------------------------------------Private Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static void Dcm_ProcessRequest(void);
+static void Dcm_ProcessRequest(
+    Dcm_OpStatusType OpStatus
+);
 
 static void Dcm_DispatchService(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 );
@@ -81,6 +87,7 @@ static void Dcm_HandleRequestDownload(
 );
 
 static void Dcm_HandleTransferData(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 );
@@ -130,10 +137,24 @@ static void Dcm_WriteUint24BigEndian(
     uint32 Value
 );
 
+static uint32 Dcm_ReadUint32BigEndian(
+    const uint8* DataPtr
+);
+
 static void Dcm_ResetFotaDownloadContext(void);
 
 static boolean Dcm_IsFotaDownloadStartState(
     Dcm_FotaStateType FotaState
+);
+
+static Std_ReturnType Dcm_HandleVerifyImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
+);
+
+static Std_ReturnType Dcm_HandleActivateImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
 );
 
 /*********************************************************************************************************************/
@@ -185,12 +206,14 @@ void Dcm_RxIndication(
     );
     DCM_DEBUG_PRINT_PDU("", PduInfoPtr);
 
-    /*
-     * Dcm_RxIndication에서는 요청을 복사만 하고,
-     * 실제 UDS 처리는 Dcm_MainFunction에서 수행한다.
-     *
-     * 이렇게 하면 CanTp/PduR 콜백 안에서 서비스 처리를 길게 수행하지 않아도 된다.
-     */
+    if (Dcm_Runtime.RequestState != DCM_REQUEST_IDLE)
+    {
+        /*
+         * 현재 pending service 처리 중.
+         * RxBuffer overwrite 막기.
+         */
+        return;
+    }
     memcpy(
         Dcm_Runtime.RxBuffer,
         PduInfoPtr->SduDataPtr,
@@ -199,7 +222,7 @@ void Dcm_RxIndication(
 
     Dcm_Runtime.RxLength = PduInfoPtr->SduLength;
     Dcm_Runtime.CurrentRxPduId = DcmRxPduId;
-    Dcm_Runtime.RequestState = DCM_REQUEST_PENDING;
+    Dcm_Runtime.RequestState = DCM_REQUEST_NEW;
 }
 
 void Dcm_TxConfirmation(
@@ -255,10 +278,13 @@ void Dcm_TxConfirmation(
 
 void Dcm_MainFunction(void)
 {
-    if (Dcm_Runtime.RequestState == DCM_REQUEST_PENDING)
+    if (Dcm_Runtime.RequestState == DCM_REQUEST_NEW)
     {
-        Dcm_ProcessRequest();
-        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+        Dcm_ProcessRequest(DCM_OP_INITIAL);
+    }
+    else if (Dcm_Runtime.RequestState == DCM_REQUEST_PROCESSING)
+    {
+        Dcm_ProcessRequest(DCM_OP_PENDING);
     }
 }
 
@@ -281,20 +307,28 @@ Dcm_FotaResultType Dcm_GetLastFotaResult(void)
 /*------------------------------------------------Request Processing-------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static void Dcm_ProcessRequest(void)
+static void Dcm_ProcessRequest(Dcm_OpStatusType OpStatus)
 {
     if (Dcm_Runtime.RxLength == 0U)
     {
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
         return;
     }
 
     Dcm_DispatchService(
+        OpStatus,
         Dcm_Runtime.RxBuffer,
         Dcm_Runtime.RxLength
     );
+
+    if (Dcm_Runtime.RequestState == DCM_REQUEST_NEW)
+    {
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+    }
 }
 
 static void Dcm_DispatchService(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 )
@@ -349,6 +383,7 @@ static void Dcm_DispatchService(
         case DCM_SID_TRANSFER_DATA:
         {
             Dcm_HandleTransferData(
+                OpStatus,
                 RequestDataPtr,
                 RequestLength
             );
@@ -577,20 +612,18 @@ static void Dcm_HandleRequestDownload(
 )
 {
     uint8 ResponsePayload[4];
+    uint32 ImageSize;
 
     /*
-     * 최소 형식만 검사한다.
+     * 테스트용 고정 형식:
      *
-     * 실제 UDS RequestDownload는:
-     * SID
-     * dataFormatIdentifier
-     * addressAndLengthFormatIdentifier
-     * memoryAddress
-     * memorySize
-     *
-     * 로 구성되지만, 지금은 프로젝트 테스트용으로 상세 memoryAddress 해석은 생략한다.
+     * [0] SID = 0x34
+     * [1] dataFormatIdentifier = 0x00
+     * [2] addressAndLengthFormatIdentifier = 0x44
+     * [3~6] memoryAddress, 4 bytes
+     * [7~10] memorySize, 4 bytes
      */
-    if (RequestLength < 5U)
+    if (RequestLength != 11U)
     {
         Dcm_SendNegativeResponse(
             DCM_SID_REQUEST_DOWNLOAD,
@@ -617,18 +650,43 @@ static void Dcm_HandleRequestDownload(
         return;
     }
 
+    if ((RequestDataPtr[1] != 0x00U) || (RequestDataPtr[2] != 0x44U))
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_REQUEST_OUT_OF_RANGE
+        );
+        return;
+    }
+
+    ImageSize = Dcm_ReadUint32BigEndian(&RequestDataPtr[7]);
+
+    if (ImageSize == 0U)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_REQUEST_OUT_OF_RANGE
+        );
+        return;
+    }
+
     Dcm_ResetFotaDownloadContext();
+
+    if (FOTA_StartDownload(ImageSize) != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_DOWNLOAD_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_REQUEST_DOWNLOAD,
+            DCM_NRC_CONDITIONS_NOT_CORRECT
+        );
+        return;
+    }
 
     Dcm_Runtime.FotaState = DCM_FOTA_STATE_DOWNLOAD_ACCEPTED;
     Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_NONE;
 
-    /*
-     * Positive Response 0x74:
-     *
-     * Byte 0: lengthFormatIdentifier
-     * Byte 1~3: maxNumberOfBlockLength
-     *
-     */
     ResponsePayload[0] = DCM_LENGTH_FORMAT_MAX_BLOCK_LENGTH;
 
     Dcm_WriteUint24BigEndian(
@@ -644,59 +702,95 @@ static void Dcm_HandleRequestDownload(
 }
 
 static void Dcm_HandleTransferData(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 )
 {
     uint8 BlockSequenceCounter;
     uint8 ResponsePayload[1];
+    Dcm_ReturnWriteMemoryType WriteRet;
 
-    if (RequestLength < 2U)
+    if (OpStatus == DCM_OP_INITIAL) 
     {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_INCORRECT_MESSAGE_LENGTH
-        );
-        return;
-    }
+        if (RequestLength < 2U)
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_INCORRECT_MESSAGE_LENGTH
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
 
-    if (RequestLength > DCM_MAX_TRANSFER_BLOCK_LENGTH)
-    {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_OUT_OF_RANGE
-        );
-        return;
-    }
+        if (RequestLength > DCM_MAX_TRANSFER_BLOCK_LENGTH)
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_OUT_OF_RANGE
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
 
-    if ((Dcm_Runtime.FotaState != DCM_FOTA_STATE_DOWNLOAD_ACCEPTED) &&
-        (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_IN_PROGRESS))
-    {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_SEQUENCE_ERROR
-        );
-        return;
+            return;
+        }
+
+        if ((Dcm_Runtime.FotaState != DCM_FOTA_STATE_DOWNLOAD_ACCEPTED) &&
+            (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_IN_PROGRESS))
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_SEQUENCE_ERROR
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
+
+        BlockSequenceCounter = RequestDataPtr[1];
+
+        if (BlockSequenceCounter != Dcm_Runtime.ExpectedBlockSequenceCounter)
+        {
+            Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+            Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
+
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_SEQUENCE_ERROR
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
     }
 
     BlockSequenceCounter = RequestDataPtr[1];
 
-    if (BlockSequenceCounter != Dcm_Runtime.ExpectedBlockSequenceCounter)
+    WriteRet = FOTA_ProcessTransferDataWrite(
+        OpStatus,
+        &RequestDataPtr[2],
+        (PduLengthType)(RequestLength - 2U),
+        BlockSequenceCounter
+    );
+
+    if (WriteRet == DCM_WRITE_PENDING)
+    {
+        Dcm_Runtime.RequestState = DCM_REQUEST_PROCESSING;
+        return;
+    }
+
+    if (WriteRet == DCM_WRITE_FAILED)
     {
         Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
         Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
 
         Dcm_SendNegativeResponse(
             DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_SEQUENCE_ERROR
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
         );
+
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
         return;
     }
 
-    /*
-     * 실제 구현에서는 여기서 RequestDataPtr[2]부터 flash write buffer로 넘긴다.
-     * 현재는 데이터 수신 성공으로만 처리한다.
-     */
+    /* DCM_WRITE_OK */
     Dcm_Runtime.FotaState = DCM_FOTA_STATE_TRANSFER_IN_PROGRESS;
 
     if (Dcm_Runtime.ExpectedBlockSequenceCounter == DCM_MAX_BLOCK_SEQUENCE_COUNTER)
@@ -715,6 +809,8 @@ static void Dcm_HandleTransferData(
         ResponsePayload,
         1U
     );
+
+    Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
 }
 
 static void Dcm_HandleRequestTransferExit(
@@ -788,40 +884,26 @@ static void Dcm_HandleRoutineControl(
     {
         case DCM_RID_VERIFY_IMAGE:
         {
-            if (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_COMPLETED)
+            if (Dcm_HandleVerifyImageRoutine(
+                    RequestDataPtr,
+                    RequestLength
+                ) != E_OK)
             {
-                Dcm_SendNegativeResponse(
-                    DCM_SID_ROUTINE_CONTROL,
-                    DCM_NRC_REQUEST_SEQUENCE_ERROR
-                );
                 return;
             }
-
-            /*
-             * 실제 구현에서는 이미지 해시/CRC/서명 검증을 수행해야 한다.
-             * 현재는 검증 성공으로 가정한다.
-             */
-            Dcm_Runtime.FotaState = DCM_FOTA_STATE_VERIFIED;
 
             break;
         }
 
         case DCM_RID_ACTIVATE_IMAGE:
         {
-            if (Dcm_Runtime.FotaState != DCM_FOTA_STATE_PROGRAMMING_SESSION)
+            if (Dcm_HandleActivateImageRoutine(
+                    RequestDataPtr,
+                    RequestLength
+                ) != E_OK)
             {
-                Dcm_SendNegativeResponse(
-                    DCM_SID_ROUTINE_CONTROL,
-                    DCM_NRC_REQUEST_SEQUENCE_ERROR
-                );
                 return;
             }
-
-            /*
-             * 실제 구현에서는 부트 플래그 변경, A/B partition 선택 등을 수행한다.
-             * 현재는 activation pending 상태로만 둔다.
-             */
-            Dcm_Runtime.FotaState = DCM_FOTA_STATE_ACTIVATION_PENDING;
 
             break;
         }
@@ -1063,3 +1145,111 @@ static boolean Dcm_IsFotaDownloadStartState(
     return IsDownloadStartState;
 }
 
+static uint32 Dcm_ReadUint32BigEndian(const uint8* DataPtr)
+{
+    return ((uint32)DataPtr[0] << 24U) |
+           ((uint32)DataPtr[1] << 16U) |
+           ((uint32)DataPtr[2] << 8U)  |
+           ((uint32)DataPtr[3]);
+}
+
+static Std_ReturnType Dcm_HandleVerifyImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
+)
+{
+    uint32 ExpectedCrc;
+
+    /*
+     * Expected request:
+     * [0] 0x31
+     * [1] 0x01
+     * [2] 0xFF
+     * [3] 0x01
+     * [4~7] expected CRC32
+     */
+    if (RequestLength != 8U)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_INCORRECT_MESSAGE_LENGTH
+        );
+        return E_NOT_OK;
+    }
+
+    if (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_COMPLETED)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_REQUEST_SEQUENCE_ERROR
+        );
+        return E_NOT_OK;
+    }
+
+    ExpectedCrc = Dcm_ReadUint32BigEndian(&RequestDataPtr[4]);
+
+    if (FOTA_VerifyImage(ExpectedCrc) != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_VERIFY_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+        );
+        return E_NOT_OK;
+    }
+
+    Dcm_Runtime.FotaState = DCM_FOTA_STATE_VERIFIED;
+
+    return E_OK;
+}
+
+static Std_ReturnType Dcm_HandleActivateImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
+)
+{
+    (void)RequestDataPtr;
+
+    /*
+     * Expected request:
+     * [0] 0x31
+     * [1] 0x01
+     * [2] 0xFF
+     * [3] 0x02
+     */
+    if (RequestLength != 4U)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_INCORRECT_MESSAGE_LENGTH
+        );
+        return E_NOT_OK;
+    }
+
+    if (Dcm_Runtime.FotaState != DCM_FOTA_STATE_PROGRAMMING_SESSION)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_REQUEST_SEQUENCE_ERROR
+        );
+        return E_NOT_OK;
+    }
+
+    if (FOTA_ActivateImage() != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_ACTIVATION_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+        );
+        return E_NOT_OK;
+    }
+
+    Dcm_Runtime.FotaState = DCM_FOTA_STATE_ACTIVATION_PENDING;
+
+    return E_OK;
+}

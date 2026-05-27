@@ -71,9 +71,6 @@
 #define SOTA_TC37X_PROCONTP_SOTA_MASK       (0x000F0000u)
 
 #if (SOTA_TC37X_TARGET != 0u)
-#if !defined(DEVICE_TC37X)
-#error "SOTA TC37x configuration requires DEVICE_TC37X."
-#endif
 #if (IFXFLASH_PFLASH_PAGE_LENGTH != 32u)
 #error "TC37x PFLASH page length must be 32 bytes."
 #endif

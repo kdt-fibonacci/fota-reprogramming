@@ -1,10 +1,10 @@
 #include <string.h>
 
 #include <IfxDmu_reg.h>
-#include <Sota/Update/Sota_UpdateCore.h>
-#include <Sota/Sota_Tc37x_Config.h>
-#include <Sota/Flash/Sota_FlashTc37x.h>
-#include <Sota/Crc/crc32.h>
+#include "Sota_UpdateCore.h"
+#include "Sota_Tc37x_Config.h"
+#include "Sota_FlashTc37x.h"
+#include "crc32.h"
 
 #define SOTA_UPDATE_PAGE_SIZE       (32u)
 #define SOTA_UPDATE_INVALID_OFFSET  (0xFFFFFFFFu)

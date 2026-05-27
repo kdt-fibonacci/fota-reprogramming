@@ -16,7 +16,7 @@ extern "C" {
 /*********************************************************************************************************************/
 
 #ifndef FOTA_MAX_TRANSFER_DATA_LENGTH
-#define FOTA_MAX_TRANSFER_DATA_LENGTH           (512U)
+#define FOTA_MAX_TRANSFER_DATA_LENGTH           (2048U)
 #endif
 
 #ifndef FOTA_ALLOW_ACTIVATE_WITHOUT_VERIFY

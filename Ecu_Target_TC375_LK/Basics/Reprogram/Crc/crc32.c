@@ -1,4 +1,4 @@
-#include <Sota/Crc/crc32.h>
+#include "crc32.h"
 
 static const unsigned long crcTable[256] =
 {
