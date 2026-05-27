@@ -5,7 +5,7 @@
 #include "Ifx_Lwip.h"
 #include "Configuration.h"
 
-void LWIP_TimerInit(void)
+void LwIP_TimerInit(void)
 {
     IfxStm_CompareConfig StmCompareConfig;
 
@@ -22,16 +22,16 @@ void LWIP_TimerInit(void)
     );
 }
 
-void LWIP_Init(void)
+void LwIP_Init(void)
 {
     IfxGeth_enableModule(&MODULE_GETH);
 
-    LWIP_TimerInit();
+    LwIP_TimerInit();
 
     Ifx_Lwip_init(EthAddr);
 }
 
-void LWIP_MainFunction(void)
+void LwIP_MainFunction(void)
 {
     Ifx_Lwip_pollTimerFlags();
     Ifx_Lwip_pollReceiveFlags();

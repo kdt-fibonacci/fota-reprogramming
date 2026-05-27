@@ -12,7 +12,7 @@
 const DoIP_ConfigType DoIP_Config =
 {
     .EntityLogicalAddress        = DOIP_LOGICAL_ADDRESS_ECU,
-    .TesterLogicalAddressDefault = DOIP_LOGICAL_ADDRESS_TESTER_DEFAULT,
+    .TesterLogicalAddress        = DOIP_LOGICAL_ADDRESS_TESTER,
 
     .SoAdRxPduId                 = SOAD_RXPDU_DOIP_TCP,
     .SoAdTxPduId                 = SOAD_TXPDU_DOIP_TCP

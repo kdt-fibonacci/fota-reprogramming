@@ -49,14 +49,23 @@
 /*--------------------------------------------------Frame Constants--------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define CANTP_CAN_FRAME_LENGTH              (8U)
+#define CANTP_CAN_FRAME_LENGTH              (64U)
 
-#define CANTP_SF_MAX_PAYLOAD_LENGTH         (7U)
-#define CANTP_FF_DATA_LENGTH                (6U)
-#define CANTP_CF_DATA_LENGTH                (7U)
+/*
+ * Project-local PCI layout for length-carrying frames:
+ *   byte0[7:4] = frame type, byte0[3:0] + byte1 = 12-bit N-SDU length.
+ */
+#define CANTP_LENGTH_PCI_LENGTH             (2U)
+#define CANTP_CF_PCI_LENGTH                 (1U)
 
-#define CANTP_RX_BUFFER_SIZE                (1024U)
-#define CANTP_TX_BUFFER_SIZE                (1024U)
+#define CANTP_MAX_LENGTH_12BIT              (0x0FFFU)
+
+#define CANTP_SF_MAX_PAYLOAD_LENGTH         (CANTP_CAN_FRAME_LENGTH - CANTP_LENGTH_PCI_LENGTH)
+#define CANTP_FF_DATA_LENGTH                (CANTP_CAN_FRAME_LENGTH - CANTP_LENGTH_PCI_LENGTH)
+#define CANTP_CF_DATA_LENGTH                (CANTP_CAN_FRAME_LENGTH - CANTP_CF_PCI_LENGTH)
+
+#define CANTP_RX_BUFFER_SIZE                (2048U)
+#define CANTP_TX_BUFFER_SIZE                (2048U)
 
 /*********************************************************************************************************************/
 /*--------------------------------------------------PCI Constants----------------------------------------------------*/

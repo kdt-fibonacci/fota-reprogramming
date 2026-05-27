@@ -149,7 +149,8 @@ Std_ReturnType CanTp_Transmit(
         return E_NOT_OK;
     }
 
-    if (CanTpTxInfoPtr->SduLength == 0U)
+    if ((CanTpTxInfoPtr->SduLength == 0U) ||
+        (CanTpTxInfoPtr->SduLength > CANTP_MAX_LENGTH_12BIT))
     {
         return E_NOT_OK;
     }
@@ -377,10 +378,13 @@ static Std_ReturnType CanTp_SendSingleFrame(
 
     CanTp_TxRuntime.CanFrameBuffer[0] =
         (uint8)(CANTP_PCI_TYPE_SF |
-        ((uint8)CanTpTxInfoPtr->SduLength & CANTP_PCI_LENGTH_MASK));
+        ((uint8)(CanTpTxInfoPtr->SduLength >> 8U) & CANTP_PCI_LENGTH_MASK));
+
+    CanTp_TxRuntime.CanFrameBuffer[1] =
+        (uint8)(CanTpTxInfoPtr->SduLength & 0xFFU);
 
     memcpy(
-        &CanTp_TxRuntime.CanFrameBuffer[1],
+        &CanTp_TxRuntime.CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
         CanTpTxInfoPtr->SduDataPtr,
         CanTpTxInfoPtr->SduLength
     );
@@ -392,8 +396,9 @@ static Std_ReturnType CanTp_SendSingleFrame(
     CanTp_TxRuntime.TotalLength = 0U;
 
     CANTP_DEBUG_PRINTF(
-        "[CanTp][TX] Frame=SF CanIfTxNpduId=%u\r\n",
-        TxConfig->CanIfTxNpduId
+        "[CanTp][TX] Frame=SF CanIfTxNpduId=%u TotalLength=%u\r\n",
+        TxConfig->CanIfTxNpduId,
+        CanTpTxInfoPtr->SduLength
     );
 
     CANTP_DEBUG_PRINT_PDU(
@@ -413,7 +418,7 @@ static Std_ReturnType CanTp_SendFirstFrame(
 {
     PduInfoType CanIfPduInfo;
 
-    if (CanTp_TxRuntime.TotalLength < CANTP_FF_DATA_LENGTH)
+    if (CanTp_TxRuntime.TotalLength <= CANTP_FF_DATA_LENGTH)
     {
         return E_NOT_OK;
     }
@@ -428,7 +433,7 @@ static Std_ReturnType CanTp_SendFirstFrame(
         (uint8)(CanTp_TxRuntime.TotalLength & 0xFFU);
 
     memcpy(
-        &CanTp_TxRuntime.CanFrameBuffer[2],
+        &CanTp_TxRuntime.CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
         CanTp_TxRuntime.Buffer,
         CANTP_FF_DATA_LENGTH
     );
@@ -538,23 +543,30 @@ static void CanTp_HandleSingleFrame(
 )
 {
     PduInfoType CanTpRxInfo;
-    uint8 PayloadLength;
+    uint16 PayloadLength;
 
-    PayloadLength = PduInfoPtr->SduDataPtr[0] & CANTP_PCI_LENGTH_MASK;
+    if (PduInfoPtr->SduLength < CANTP_LENGTH_PCI_LENGTH)
+    {
+        return;
+    }
+
+    PayloadLength =
+        (uint16)(((uint16)(PduInfoPtr->SduDataPtr[0] & CANTP_PCI_LENGTH_MASK) << 8U) |
+                 ((uint16)PduInfoPtr->SduDataPtr[1]));
 
     if (PayloadLength > CANTP_SF_MAX_PAYLOAD_LENGTH)
     {
         return;
     }
 
-    if ((PduLengthType)(PayloadLength + 1U) > PduInfoPtr->SduLength)
+    if ((PduLengthType)(PayloadLength + CANTP_LENGTH_PCI_LENGTH) > PduInfoPtr->SduLength)
     {
         return;
     }
 
     memcpy(
         CanTp_RxRuntime.Buffer,
-        &PduInfoPtr->SduDataPtr[1],
+        &PduInfoPtr->SduDataPtr[CANTP_LENGTH_PCI_LENGTH],
         PayloadLength
     );
 
@@ -602,7 +614,9 @@ static void CanTp_HandleFirstFrame(
         (uint16)(((uint16)(PduInfoPtr->SduDataPtr[0] & CANTP_PCI_LENGTH_MASK) << 8U) |
                  ((uint16)PduInfoPtr->SduDataPtr[1]));
 
-    if ((TotalLength == 0U) || (TotalLength > RxConfig->RxBufferSize))
+    if ((TotalLength == 0U) ||
+        (TotalLength <= CANTP_FF_DATA_LENGTH) ||
+        (TotalLength > RxConfig->RxBufferSize))
     {
         (void)CanTp_SendFlowControl(
             RxConfig,
@@ -615,7 +629,7 @@ static void CanTp_HandleFirstFrame(
 
     memcpy(
         CanTp_RxRuntime.Buffer,
-        &PduInfoPtr->SduDataPtr[2],
+        &PduInfoPtr->SduDataPtr[CANTP_LENGTH_PCI_LENGTH],
         CANTP_FF_DATA_LENGTH
     );
 

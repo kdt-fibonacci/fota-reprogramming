@@ -25,17 +25,7 @@
 /*------------------------------------------------Logical Addresses--------------------------------------------------*/
 /*********************************************************************************************************************/
 
-/*
- * Gateway ECU Logical Address
- *
- * 현재 프로젝트에서는 Gateway 자체 진단은 수행하지 않는다.
- * 따라서 Diagnostic Message의 TargetAddress로 이 주소가 들어오더라도
- * Local DCM으로 라우팅하지 않는다.
- *
- * 다만 Routing Activation Response에서 Entity Logical Address로 사용할 수 있으므로
- * Gateway 자신의 주소는 유지한다.
- */
-#define DOIP_LOGICAL_ADDRESS_ECU                       (0x0E00U)
+#define DOIP_LOGICAL_ADDRESS_ECU                       (0x0F00U)
 
 /*
  * Gateway 뒤쪽 CAN Target ECU Logical Address
@@ -43,12 +33,13 @@
  * DoIP Diagnostic Message의 TargetAddress가 이 값이면
  * DoIP는 해당 메시지를 CanTp 방향으로 라우팅하기 위한 DoIPRxPduId로 변환한다.
  */
-#define DOIP_LOGICAL_ADDRESS_TARGET_ECU                (0x0701U)
+#define DOIP_LOGICAL_ADDRESS_TARGET_ECU                (0x1234U)
+#define DOIP_LOGICAL_ADDRESS_TARGET_ECU_1              (0x5678U)
 
 /*
  * Tester Logical Address 기본값
  */
-#define DOIP_LOGICAL_ADDRESS_TESTER_DEFAULT            (0x0E80U)
+#define DOIP_LOGICAL_ADDRESS_TESTER                    (0x0E00U)
 
 /*********************************************************************************************************************/
 /*--------------------------------------------------Payload Types----------------------------------------------------*/
@@ -109,7 +100,7 @@
 typedef struct
 {
     uint16 EntityLogicalAddress;
-    uint16 TesterLogicalAddressDefault;
+    uint16 TesterLogicalAddress;
 
     PduIdType SoAdRxPduId;
     PduIdType SoAdTxPduId;

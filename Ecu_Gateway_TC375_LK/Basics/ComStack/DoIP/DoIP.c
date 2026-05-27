@@ -76,7 +76,7 @@ static Std_ReturnType DoIP_SendMessage(
 );
 
 static Std_ReturnType DoIP_SendGenericNack(
-    uint8 NackCode
+    uint8 NackCodeDoIP_SendGenericNack
 );
 
 static Std_ReturnType DoIP_SendRoutingActivationResponse(
@@ -133,7 +133,7 @@ void DoIP_Init(void)
     );
 
     DoIP_Runtime.State = DOIP_STATE_INITIALIZED;
-    DoIP_Runtime.TesterLogicalAddress = DoIP_Config.TesterLogicalAddressDefault;
+    DoIP_Runtime.TesterLogicalAddress = DoIP_Config.TesterLogicalAddress;
     DoIP_Runtime.EntityLogicalAddress = DoIP_Config.EntityLogicalAddress;
     DoIP_Runtime.RxLength = 0U;
 }
@@ -448,9 +448,9 @@ static void DoIP_HandleDiagnosticMessage(
      */
     if (PayloadLength < 5U)
     {
-        (void)DoIP_SendGenericNack(
-            DOIP_GENERIC_NACK_INVALID_HEADER
-        );
+        // (void)DoIP_SendGenericNack(
+        //     DOIP_GENERIC_NACK_INVALID_HEADER
+        // );
         return;
     }
 
@@ -479,11 +479,11 @@ static void DoIP_HandleDiagnosticMessage(
 
     if (RxConfig == NULL_PTR)
     {
-        (void)DoIP_SendDiagnosticNegativeAck(
-            SourceAddress,
-            TargetAddress,
-            DOIP_DIAG_NACK_CODE_UNKNOWN_TARGET
-        );
+        // (void)DoIP_SendDiagnosticNegativeAck(
+        //     SourceAddress,
+        //     TargetAddress,
+        //     DOIP_DIAG_NACK_CODE_UNKNOWN_TARGET
+        // );
 
         return;
     }
@@ -509,10 +509,10 @@ static void DoIP_HandleDiagnosticMessage(
      * DoIP 계층에서 Diagnostic Message 수신 자체는 정상 처리되었으므로
      * Diagnostic Positive ACK를 먼저 전송한다.
      */
-    (void)DoIP_SendDiagnosticPositiveAck(
-        SourceAddress,
-        TargetAddress
-    );
+    // (void)DoIP_SendDiagnosticPositiveAck(
+    //     SourceAddress,
+    //     TargetAddress
+    // );
 
     /*
      * DoIP는 Logical Address를 PDU ID로 변환한다.

@@ -12,8 +12,8 @@
 /*------------------------------------------------------Macros-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define DCM_RX_BUFFER_SIZE                          (1024U)
-#define DCM_TX_BUFFER_SIZE                          (1024U)
+#define DCM_RX_BUFFER_SIZE                          (2048U)
+#define DCM_TX_BUFFER_SIZE                          (2048U)
 #define DCM_LENGTH_FORMAT_MAX_BLOCK_LENGTH          (0x30U)
 /*********************************************************************************************************************/
 /*---------------------------------------------------DCM PDU IDs-----------------------------------------------------*/
@@ -111,9 +111,9 @@
  * 실제 표준 RID/사내 RID를 쓰는 것이 아니라,
  * 프로젝트 테스트용으로 임의 정의한 값이다.
  */
-#define DCM_RID_VERIFY_IMAGE                       (0xFF00U)
-#define DCM_RID_ACTIVATE_IMAGE                     (0xFF01U)
-#define DCM_RID_ROLLBACK_IMAGE                     (0xFF02U)
+#define DCM_RID_VERIFY_IMAGE                       (0xFF01U)
+#define DCM_RID_ACTIVATE_IMAGE                     (0xFF02U)
+#define DCM_RID_ROLLBACK_IMAGE                     (0xFF03U)
 
 #define DCM_ROUTINE_CONTROL_START_ROUTINE          (0x01U)
 #define DCM_ROUTINE_CONTROL_STOP_ROUTINE           (0x02U)
@@ -125,10 +125,6 @@
 
 #define DCM_MAX_BLOCK_SEQUENCE_COUNTER             (0xFFU)
 
-/*
- * RequestDownload Positive Response에서 반환할 maxNumberOfBlockLength.
- * 3-byte length field로 0x000200, 즉 512 bytes를 광고한다.
- */
-#define DCM_MAX_TRANSFER_BLOCK_LENGTH              (512U)
+#define DCM_MAX_TRANSFER_BLOCK_LENGTH              (1026U)
 
 #endif /* DCM_CFG_H_ */

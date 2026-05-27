@@ -1,8 +1,8 @@
 #ifndef LWIP_H_
 #define LWIP_H_
 
-void LWIP_Init(void);
-void LWIP_MainFunction(void);
-void LWIP_TimerInit(void);
+void LwIP_Init(void);
+void LwIP_MainFunction(void);
+void LwIP_TimerInit(void);
 
 #endif /* LWIP_H_ */

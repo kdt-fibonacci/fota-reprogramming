@@ -145,7 +145,7 @@ void Can_Init(
     canNodeConfig.filterConfig.standardFilterForNonMatchingFrames = (IfxCan_NonMatchingFrame)0;
     
     canNodeConfig.rxConfig.rxMode               = IfxCan_RxMode_fifo0;
-    canNodeConfig.rxConfig.rxFifo0Size          = 16U;
+    canNodeConfig.rxConfig.rxFifo0Size          = 14U;
     canNodeConfig.rxConfig.rxFifo0OperatingMode = IfxCan_RxFifoMode_blocking;
     canNodeConfig.rxConfig.rxFifo0DataFieldSize = IfxCan_DataFieldSize_64;
 
