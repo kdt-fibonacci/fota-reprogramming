@@ -50,6 +50,9 @@ typedef struct
 
 static FotaHandlerContextType g_fotaHandlerContext;
 
+static volatile uint8 g_fotaResetRequested = 0U;
+static volatile uint32 g_fotaResetDelayTicks = 0U;
+
 /*********************************************************************************************************************/
 /*-----------------------------------------------Private Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -348,11 +351,11 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
             g_fotaHandlerContext.chunkState = FOTA_CHUNK_RECEIVED;
             g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_TRANSFERRING;
 
-            FOTA_DEBUG_PRINTF(
-                "[FOTA][TRANSFER] Chunk received BSC=%u Len=%lu -> PENDING\r\n",
-                (unsigned int)BlockSequenceCounter,
-                (unsigned long)DataLength
-            );
+//            FOTA_DEBUG_PRINTF(
+//                "[FOTA][TRANSFER] Chunk received BSC=%u Len=%lu -> PENDING\r\n",
+//                (unsigned int)BlockSequenceCounter,
+//                (unsigned long)DataLength
+//            );
 
             return DCM_WRITE_PENDING;
         }
@@ -388,10 +391,10 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
 
     if (OpStatus == DCM_OP_PENDING)
     {
-        FOTA_DEBUG_PRINTF(
-            "[FOTA][TRANSFER] Pending poll ChunkState=%u\r\n",
-            (unsigned int)g_fotaHandlerContext.chunkState
-        );
+//        FOTA_DEBUG_PRINTF(
+//            "[FOTA][TRANSFER] Pending poll ChunkState=%u\r\n",
+//            (unsigned int)g_fotaHandlerContext.chunkState
+//        );
 
         if (g_fotaHandlerContext.chunkState == FOTA_CHUNK_DONE)
         {
@@ -399,11 +402,11 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
             FOTA_ClearChunkOnly();
             g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
 
-            FOTA_DEBUG_PRINTF(
-                "[FOTA][TRANSFER] Chunk consumed -> OK Total=%lu/%lu\r\n",
-                (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
-                (unsigned long)g_fotaHandlerContext.expectedImageLength
-            );
+//            FOTA_DEBUG_PRINTF(
+//                "[FOTA][TRANSFER] Chunk consumed -> OK Total=%lu/%lu\r\n",
+//                (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
+//                (unsigned long)g_fotaHandlerContext.expectedImageLength
+//            );
             return DCM_WRITE_OK;
         }
 
@@ -451,11 +454,11 @@ void FOTAHandlerMain(void)
         return;
     }
 
-    FOTA_DEBUG_PRINTF(
-        "[FOTA][MAIN] Write chunk BSC=%u Len=%lu\r\n",
-        (unsigned int)g_fotaHandlerContext.blockSequenceCounter,
-        (unsigned long)g_fotaHandlerContext.length
-    );
+//    FOTA_DEBUG_PRINTF(
+//        "[FOTA][MAIN] Write chunk BSC=%u Len=%lu\r\n",
+//        (unsigned int)g_fotaHandlerContext.blockSequenceCounter,
+//        (unsigned long)g_fotaHandlerContext.length
+//    );
 
     g_fotaHandlerContext.chunkState = FOTA_CHUNK_PROCESSING;
 
@@ -474,11 +477,11 @@ void FOTAHandlerMain(void)
         g_fotaHandlerContext.chunkState = FOTA_CHUNK_DONE;
         g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
 
-        FOTA_DEBUG_PRINTF(
-            "[FOTA][MAIN] Chunk done Total=%lu/%lu\r\n",
-            (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
-            (unsigned long)g_fotaHandlerContext.expectedImageLength
-        );
+//        FOTA_DEBUG_PRINTF(
+//            "[FOTA][MAIN] Chunk done Total=%lu/%lu\r\n",
+//            (unsigned long)g_fotaHandlerContext.totalReceivedBytes,
+//            (unsigned long)g_fotaHandlerContext.expectedImageLength
+//        );
     }
     else
     {
@@ -596,24 +599,88 @@ Std_ReturnType FOTA_ActivateImage(void)
     FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Armed\r\n");
     return E_OK;
 }
-Std_ReturnType FOTA_PerformSystemReset(void)
+
+Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
 {
     /*
-     * Call this only after the ECUReset positive response has been transmitted.
-     * This reset path must make SSW run again so that UCB_SWAP is evaluated.
+     * Do not reset immediately inside DCM service processing.
+     * DCM should send the positive response first.
+     * Then this pending reset is executed in FOTA_ResetMainFunction().
+     */
+    g_fotaResetDelayTicks = delayTicks;
+    g_fotaResetRequested = 1U;
+
+    return E_OK;
+}
+
+void FOTA_ResetMainFunction(void)
+{
+    if (g_fotaResetRequested == 0U)
+    {
+        return;
+    }
+
+    if (g_fotaResetDelayTicks > 0U)
+    {
+        g_fotaResetDelayTicks--;
+        return;
+    }
+
+    g_fotaResetRequested = 0U;
+
+    /*
+     * Use a reset path that makes SSW run again.
+     * Exact enum names can differ slightly by iLLD version.
      */
     IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
-                           IfxScuRcu_ResetReason_application);
+                           IfxScuRcu_ResetType_application);
 
     while (1)
     {
         /* wait for reset */
     }
+}
 
-    /* Not reached */
+Std_ReturnType FOTA_RequestSystemReset(uint32 delayTicks)
+{
+    /*
+     * Do not reset immediately inside DCM service processing.
+     * DCM should send the positive response first.
+     * Then this pending reset is executed in FOTA_ResetMainFunction().
+     */
+    g_fotaResetDelayTicks = delayTicks;
+    g_fotaResetRequested = 1U;
+
     return E_OK;
 }
 
+void FOTA_ResetMainFunction(void)
+{
+    if (g_fotaResetRequested == 0U)
+    {
+        return;
+    }
+
+    if (g_fotaResetDelayTicks > 0U)
+    {
+        g_fotaResetDelayTicks--;
+        return;
+    }
+
+    g_fotaResetRequested = 0U;
+
+    /*
+     * Use a reset path that makes SSW run again.
+     * Exact enum names can differ slightly by iLLD version.
+     */
+    IfxScuRcu_performReset(IfxScuRcu_ResetType_system,
+                           IfxScuRcu_ResetType_application);
+
+    while (1)
+    {
+        /* wait for reset */
+    }
+}
 FotaHandlerStateType FOTA_GetHandlerState(void)
 {
     return g_fotaHandlerContext.handlerState;
