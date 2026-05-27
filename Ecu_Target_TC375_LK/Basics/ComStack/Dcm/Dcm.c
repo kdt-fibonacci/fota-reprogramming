@@ -3,7 +3,7 @@
 /*********************************************************************************************************************/
 
 #include "Dcm.h"
-#include "Dcm_cfg.h"
+#include "Dcm_Cfg.h"
 
 #include "PduR.h"
 
@@ -17,8 +17,9 @@
 
 typedef enum
 {
-    DCM_REQUEST_IDLE = 0U,
-    DCM_REQUEST_PENDING
+    DCM_REQUEST_IDLE = 0U, // 처리 중인 요청 없음
+    DCM_REQUEST_NEW,       // 새 요청이 RxBuffer에 들어옴
+    DCM_REQUEST_PROCESSING // 이전 요청이 아직 처리 중
 } Dcm_RequestStateType;
 
 typedef struct
@@ -53,9 +54,12 @@ static Dcm_RuntimeType Dcm_Runtime;
 /*------------------------------------------------Private Functions--------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static void Dcm_ProcessRequest(void);
+static void Dcm_ProcessRequest(
+    Dcm_OpStatusType OpStatus
+);
 
 static void Dcm_DispatchService(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 );
@@ -81,6 +85,7 @@ static void Dcm_HandleRequestDownload(
 );
 
 static void Dcm_HandleTransferData(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 );
@@ -185,12 +190,14 @@ void Dcm_RxIndication(
     );
     DCM_DEBUG_PRINT_PDU("", PduInfoPtr);
 
-    /*
-     * Dcm_RxIndication에서는 요청을 복사만 하고,
-     * 실제 UDS 처리는 Dcm_MainFunction에서 수행한다.
-     *
-     * 이렇게 하면 CanTp/PduR 콜백 안에서 서비스 처리를 길게 수행하지 않아도 된다.
-     */
+    if (Dcm_Runtime.RequestState != DCM_REQUEST_IDLE)
+    {
+        /*
+         * 현재 pending service 처리 중.
+         * RxBuffer overwrite 막기.
+         */
+        return;
+    }
     memcpy(
         Dcm_Runtime.RxBuffer,
         PduInfoPtr->SduDataPtr,
@@ -199,7 +206,7 @@ void Dcm_RxIndication(
 
     Dcm_Runtime.RxLength = PduInfoPtr->SduLength;
     Dcm_Runtime.CurrentRxPduId = DcmRxPduId;
-    Dcm_Runtime.RequestState = DCM_REQUEST_PENDING;
+    Dcm_Runtime.RequestState = DCM_REQUEST_NEW;
 }
 
 void Dcm_TxConfirmation(
@@ -255,10 +262,13 @@ void Dcm_TxConfirmation(
 
 void Dcm_MainFunction(void)
 {
-    if (Dcm_Runtime.RequestState == DCM_REQUEST_PENDING)
+    if (Dcm_Runtime.RequestState == DCM_REQUEST_NEW)
     {
-        Dcm_ProcessRequest();
-        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+        Dcm_ProcessRequest(DCM_OP_INITIAL);
+    }
+    else if (Dcm_Runtime.RequestState == DCM_REQUEST_PROCESSING)
+    {
+        Dcm_ProcessRequest(DCM_OP_PENDING);
     }
 }
 
@@ -281,7 +291,7 @@ Dcm_FotaResultType Dcm_GetLastFotaResult(void)
 /*------------------------------------------------Request Processing-------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static void Dcm_ProcessRequest(void)
+static void Dcm_ProcessRequest(Dcm_OpStatusType OpStatus)
 {
     if (Dcm_Runtime.RxLength == 0U)
     {
@@ -289,12 +299,14 @@ static void Dcm_ProcessRequest(void)
     }
 
     Dcm_DispatchService(
+        OpStatus,
         Dcm_Runtime.RxBuffer,
         Dcm_Runtime.RxLength
     );
 }
 
 static void Dcm_DispatchService(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 )
@@ -349,6 +361,7 @@ static void Dcm_DispatchService(
         case DCM_SID_TRANSFER_DATA:
         {
             Dcm_HandleTransferData(
+                OpStatus,
                 RequestDataPtr,
                 RequestLength
             );
@@ -644,59 +657,95 @@ static void Dcm_HandleRequestDownload(
 }
 
 static void Dcm_HandleTransferData(
+    Dcm_OpStatusType OpStatus,
     const uint8* RequestDataPtr,
     PduLengthType RequestLength
 )
 {
     uint8 BlockSequenceCounter;
     uint8 ResponsePayload[1];
+    Dcm_ReturnWriteMemoryType WriteRet;
 
-    if (RequestLength < 2U)
+    if (OpStatus == DCM_OP_INITIAL) 
     {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_INCORRECT_MESSAGE_LENGTH
-        );
-        return;
-    }
+        if (RequestLength < 2U)
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_INCORRECT_MESSAGE_LENGTH
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
 
-    if (RequestLength > DCM_MAX_TRANSFER_BLOCK_LENGTH)
-    {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_OUT_OF_RANGE
-        );
-        return;
-    }
+        if (RequestLength > DCM_MAX_TRANSFER_BLOCK_LENGTH)
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_OUT_OF_RANGE
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
 
-    if ((Dcm_Runtime.FotaState != DCM_FOTA_STATE_DOWNLOAD_ACCEPTED) &&
-        (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_IN_PROGRESS))
-    {
-        Dcm_SendNegativeResponse(
-            DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_SEQUENCE_ERROR
-        );
-        return;
+            return;
+        }
+
+        if ((Dcm_Runtime.FotaState != DCM_FOTA_STATE_DOWNLOAD_ACCEPTED) &&
+            (Dcm_Runtime.FotaState != DCM_FOTA_STATE_TRANSFER_IN_PROGRESS))
+        {
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_SEQUENCE_ERROR
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
+
+        BlockSequenceCounter = RequestDataPtr[1];
+
+        if (BlockSequenceCounter != Dcm_Runtime.ExpectedBlockSequenceCounter)
+        {
+            Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+            Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
+
+            Dcm_SendNegativeResponse(
+                DCM_SID_TRANSFER_DATA,
+                DCM_NRC_REQUEST_SEQUENCE_ERROR
+            );
+            Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
+            return;
+        }
     }
 
     BlockSequenceCounter = RequestDataPtr[1];
 
-    if (BlockSequenceCounter != Dcm_Runtime.ExpectedBlockSequenceCounter)
+    WriteRet = FOTA_ProcessTransferDataWrite(
+        OpStatus,
+        &RequestDataPtr[2],
+        (PduLengthType)(RequestLength - 2U),
+        BlockSequenceCounter
+    );
+
+    if (WriteRet == DCM_WRITE_PENDING)
+    {
+        Dcm_Runtime.RequestState = DCM_REQUEST_PROCESSING;
+        return;
+    }
+
+    if (WriteRet == DCM_WRITE_FAILED)
     {
         Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
         Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_TRANSFER_FAILED;
 
         Dcm_SendNegativeResponse(
             DCM_SID_TRANSFER_DATA,
-            DCM_NRC_REQUEST_SEQUENCE_ERROR
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
         );
+
+        Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
         return;
     }
 
-    /*
-     * 실제 구현에서는 여기서 RequestDataPtr[2]부터 flash write buffer로 넘긴다.
-     * 현재는 데이터 수신 성공으로만 처리한다.
-     */
+    /* DCM_WRITE_OK */
     Dcm_Runtime.FotaState = DCM_FOTA_STATE_TRANSFER_IN_PROGRESS;
 
     if (Dcm_Runtime.ExpectedBlockSequenceCounter == DCM_MAX_BLOCK_SEQUENCE_COUNTER)
@@ -715,6 +764,8 @@ static void Dcm_HandleTransferData(
         ResponsePayload,
         1U
     );
+
+    Dcm_Runtime.RequestState = DCM_REQUEST_IDLE;
 }
 
 static void Dcm_HandleRequestTransferExit(
