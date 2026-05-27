@@ -28,8 +28,8 @@
 #include <Cpu/Std/IfxCpu.h>
 #include <string.h>
 #include <IfxScuWdt.h>
-#include <Sota/Flash/Sota_FlashTc37x.h>
-#include <Sota/Sota_Tc37x_Config.h>
+#include "Sota_FlashTc37x.h"
+#include "Sota_Tc37x_Config.h"
 
 /******************************************************************************/
 /*-----------------------------------Macros-----------------------------------*/
