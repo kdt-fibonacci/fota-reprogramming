@@ -5,17 +5,7 @@
 /*-----------------------------------------------------Includes------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-/*
- * Expected include paths when this file is placed under Basics/Reprogram/:
- * - Basics/ComStack/Dcm is on the compiler include path, so "Dcm.h" resolves.
- * - Basics/Reprogram is on the compiler include path, so "Update/Sota_UpdateCore.h" resolves.
- *
- * If your project only exposes the original Sota include root, replace the second
- * include with <Sota/Update/Sota_UpdateCore.h> or add Basics/Reprogram to the
- * include path.
- */
 #include "Dcm.h"
-#include "Update/Sota_UpdateCore.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,7 +16,11 @@ extern "C" {
 /*********************************************************************************************************************/
 
 #ifndef FOTA_MAX_TRANSFER_DATA_LENGTH
-#define FOTA_MAX_TRANSFER_DATA_LENGTH    (512U)
+#define FOTA_MAX_TRANSFER_DATA_LENGTH           (512U)
+#endif
+
+#ifndef FOTA_ALLOW_ACTIVATE_WITHOUT_VERIFY
+#define FOTA_ALLOW_ACTIVATE_WITHOUT_VERIFY      (0U)
 #endif
 
 /*********************************************************************************************************************/
@@ -42,23 +36,79 @@ typedef enum
     FOTA_CHUNK_ERROR
 } FotaChunkStateType;
 
+typedef enum
+{
+    FOTA_HANDLER_STATE_UNINIT = 0U,
+    FOTA_HANDLER_STATE_IDLE,
+    FOTA_HANDLER_STATE_DOWNLOAD_STARTED,
+    FOTA_HANDLER_STATE_TRANSFERRING,
+    FOTA_HANDLER_STATE_VERIFIED,
+    FOTA_HANDLER_STATE_ACTIVATION_ARMED,
+    FOTA_HANDLER_STATE_ERROR
+} FotaHandlerStateType;
+
+typedef enum
+{
+    FOTA_HANDLER_RESULT_NONE = 0U,
+    FOTA_HANDLER_RESULT_OK,
+    FOTA_HANDLER_RESULT_INVALID_PARAM,
+    FOTA_HANDLER_RESULT_INVALID_STATE,
+    FOTA_HANDLER_RESULT_BUSY,
+    FOTA_HANDLER_RESULT_UPDATE_FAILED,
+    FOTA_HANDLER_RESULT_VERIFY_FAILED,
+    FOTA_HANDLER_RESULT_ACTIVATION_FAILED,
+    FOTA_HANDLER_RESULT_PROVISION_FAILED
+} FotaHandlerResultType;
+
 /*********************************************************************************************************************/
 /*------------------------------------------------------APIs---------------------------------------------------------*/
 /*********************************************************************************************************************/
 
 /*
- * DCM TransferData(0x36) write callout.
+ * Initializes the FOTA adapter software context and resets the underlying update core context.
  *
- * DCM must pass only firmware chunk bytes through DataPtr/DataLength.
- * UDS SID(0x36) and blockSequenceCounter must be stripped before this call.
- * BlockSequenceCounter is stored for diagnostics but is not interpreted as
- * CanTp consecutive-frame sequence number.
+ * Important:
+ * - This does NOT perform UCB/OTP provisioning.
+ * - This does NOT arm bank swap.
+ * - This does NOT erase PFLASH.
  *
- * Call pattern:
- * 1) DCM_OP_INITIAL with a new chunk -> registers the chunk and returns DCM_WRITE_PENDING.
- * 2) FOTAHandlerMain() runs periodically and calls SotaUpdate_WriteChunk().
- * 3) DCM_OP_PENDING -> returns DCM_WRITE_OK after the handler finishes, or
- *    DCM_WRITE_FAILED if the handler hit an error.
+ * Initial provisioning writes UCB/OTP and must be invoked explicitly through
+ * FOTA_ProvisionInitialOnce() only when needed during bring-up/factory setup.
+ */
+void FOTA_Init(void);
+
+/*
+ * Resets adapter state and SotaUpdateCore state.
+ * Use before a new RequestDownload or after abort/failure.
+ * Does not perform UCB/OTP provisioning.
+ */
+void FOTA_ResetContext(void);
+
+/*
+ * Optional bring-up/factory wrapper.
+ * Calls SotaProvision_RunInitialOnce().
+ * Do not call this for every update.
+ */
+Std_ReturnType FOTA_ProvisionInitialOnce(void);
+
+/* Backward-compatible alias for the same provisioning operation. */
+Std_ReturnType FOTA_RunInitialProvisioningOnce(void);
+
+/*
+ * RequestDownload(0x34) wrapper.
+ * DCM should pass the image length and expected whole-image CRC extracted from the download request/metadata.
+ * Internally calls SotaUpdate_Reset() and SotaUpdate_Begin(imageLength, expectedCrc).
+ */
+Std_ReturnType FOTA_StartDownload(uint32 imageLength, uint32 expectedCrc);
+
+/*
+ * TransferData(0x36) write callout.
+ * DCM must pass firmware chunk bytes only:
+ *   DataPtr    = &udsRequest[2]
+ *   DataLength = udsRequestLength - 2U
+ *   BlockSequenceCounter = udsRequest[1]
+ *
+ * This adapter does not parse UDS SID, CanTp PCI, CAN ID, or lower-layer metadata.
  */
 Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
     Dcm_OpStatusType OpStatus,
@@ -68,24 +118,40 @@ Dcm_ReturnWriteMemoryType FOTA_ProcessTransferDataWrite(
 );
 
 /*
- * Cyclic FOTA handler.
- * Call from the application scheduler/main loop, not from an ISR.
+ * Cyclic processing function.
+ * Call from scheduler/main loop, not from ISR.
+ * Performs actual SotaUpdate_WriteChunk() for the chunk registered by FOTA_ProcessTransferDataWrite().
  */
 void FOTAHandlerMain(void);
 
 /*
- * Reset only the adapter/chunk state. This does not erase flash and does not
- * call SotaUpdate_Reset(). Use it when DCM starts a fresh RequestDownload or
- * aborts a pending TransferData operation.
+ * RequestTransferExit(0x37) / verify wrapper.
+ * Internally calls SotaUpdate_FinalizeAndVerify().
  */
-void FOTA_ResetContext(void);
+Std_ReturnType FOTA_RequestTransferExit(void);
+Std_ReturnType FOTA_VerifyImage(void);
 
-/* Optional diagnostics for DCM/app debug. */
+/*
+ * Activation / swap-arm wrapper.
+ * Internally calls SotaProvision_ProgramNextSwapEntry().
+ * This only arms the next UCB_SWAP entry. It does not reset the ECU.
+ */
+Std_ReturnType FOTA_ActivateImage(void);
+
+/* Optional diagnostics. */
+FotaHandlerStateType FOTA_GetHandlerState(void);
+FotaHandlerResultType FOTA_GetLastHandlerResult(void);
 FotaChunkStateType FOTA_GetChunkState(void);
+uint32 FOTA_GetExpectedImageLength(void);
+uint32 FOTA_GetExpectedImageCrc(void);
 uint32 FOTA_GetTotalReceivedBytes(void);
 uint32 FOTA_GetCurrentChunkLength(void);
 uint8 FOTA_GetCurrentBlockSequenceCounter(void);
-SotaUpdateResult_t FOTA_GetLastSotaResult(void);
+uint32 FOTA_GetLastUpdateResult(void);
+uint32 FOTA_GetLastProvisionResult(void);
+uint32 FOTA_GetLastSwapEntryIndex(void);
+uint32 FOTA_GetLastSwapTargetModeWord(void);
+const void *FOTA_GetUpdateDebug(void);
 
 #ifdef __cplusplus
 }
