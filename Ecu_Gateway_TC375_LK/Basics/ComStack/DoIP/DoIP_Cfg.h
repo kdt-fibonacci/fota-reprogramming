@@ -33,7 +33,7 @@
  * DoIP Diagnostic Message의 TargetAddress가 이 값이면
  * DoIP는 해당 메시지를 CanTp 방향으로 라우팅하기 위한 DoIPRxPduId로 변환한다.
  */
-#define DOIP_LOGICAL_ADDRESS_TARGET_ECU                (0x1234U)
+#define DOIP_LOGICAL_ADDRESS_TARGET_ECU_0              (0x1234U)
 #define DOIP_LOGICAL_ADDRESS_TARGET_ECU_1              (0x5678U)
 
 /*
@@ -79,19 +79,21 @@
  * DoIP Rx PDU ID
  *
  * 현재 구조에서는 Gateway 자체 진단을 하지 않으므로
- * DoIP Rx 경로는 CanTp 방향 하나만 존재한다.
+ * DoIP Rx 경로는 ECU0/ECU1로 향하는 CanTp 방향만 존재한다.
  */
-#define DOIP_RXPDU_DIAG_REQ_TO_CANTP                   (0U)
-#define DOIP_RXPDU_COUNT                               (1U)
+#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_ECU0              (0U)
+#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_ECU1              (1U)
+#define DOIP_RXPDU_COUNT                               (2U)
 
 /*
  * DoIP Tx PDU ID
  *
- * 현재 구조에서는 Target ECU에서 올라온 UDS Response를
- * DoIP Diagnostic Message로 감싸 Tester에게 돌려주는 경로 하나만 존재한다.
+ * 현재 구조에서는 ECU0/ECU1에서 올라온 UDS Response를
+ * DoIP Diagnostic Message로 감싸 Tester에게 돌려준다.
  */
-#define DOIP_TXPDU_DIAG_RES_FROM_CANTP                 (0U)
-#define DOIP_TXPDU_COUNT                               (1U)
+#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_ECU0            (0U)
+#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_ECU1            (1U)
+#define DOIP_TXPDU_COUNT                               (2U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Types--------------------------------------------------------*/

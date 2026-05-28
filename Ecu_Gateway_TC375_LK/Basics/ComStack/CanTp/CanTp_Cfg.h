@@ -13,8 +13,8 @@
 /*------------------------------------------------------Counts-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define CANTP_TXNSDU_COUNT                  (1U)
-#define CANTP_RXNSDU_COUNT                  (1U)
+#define CANTP_TXNSDU_COUNT                  (2U)
+#define CANTP_RXNSDU_COUNT                  (2U)
 
 /*********************************************************************************************************************/
 /*----------------------------------------------------N-SDU IDs------------------------------------------------------*/
@@ -29,8 +29,11 @@
  * CanTp는 이 payload가 UDS 요청인지 응답인지 해석하지 않는다.
  * 여기서는 ISO-TP connection의 방향만 표현한다.
  */
-#define CANTP_TXNSDU_LOCAL_TO_REMOTE        (0U)
-#define CANTP_RXNSDU_REMOTE_TO_LOCAL        (0U)
+#define CANTP_TXNSDU_GATEWAY_TO_ECU0        (0U)
+#define CANTP_TXNSDU_GATEWAY_TO_ECU1        (1U)
+
+#define CANTP_RXNSDU_ECU0_TO_GATEWAY        (0U)
+#define CANTP_RXNSDU_ECU1_TO_GATEWAY        (1U)
 
 /*********************************************************************************************************************/
 /*----------------------------------------------------N-PDU IDs------------------------------------------------------*/
@@ -42,8 +45,11 @@
  * N-PDU는 CanIf와 CanTp 사이에서 오가는 CAN frame 단위의 handle이다.
  * SF/FF/CF/FC 구분은 CAN ID나 PDU ID가 아니라 ISO-TP PCI 값으로 판단한다.
  */
-#define CANTP_TXNPDU_LOCAL_TO_REMOTE        (0U)
-#define CANTP_RXNPDU_REMOTE_TO_LOCAL        (0U)
+#define CANTP_TXNPDU_GATEWAY_TO_ECU0        (0U)
+#define CANTP_TXNPDU_GATEWAY_TO_ECU1        (1U)
+
+#define CANTP_RXNPDU_ECU0_TO_GATEWAY        (0U)
+#define CANTP_RXNPDU_ECU1_TO_GATEWAY        (1U)
 
 /*********************************************************************************************************************/
 /*--------------------------------------------------Frame Constants--------------------------------------------------*/
@@ -112,12 +118,17 @@
  * PduRTxPduId:
  *   전체 TP N-SDU 송신 완료/실패를 PduR로 알릴 때 사용하는
  *   PduR-facing Tx confirmation PDU handle.
+ *
+ * ExpectedRxNsduId:
+ *   해당 요청에 대한 Flow Control이 들어올 때 연결해야 하는 CanTp Rx N-SDU handle.
+ *   Tx runtime 배열에서 어떤 ECU 채널의 FC인지 찾는 데 사용한다.
  */
 typedef struct
 {
     PduIdType CanTpTxNsduId;
     PduIdType CanIfTxNpduId;
     PduIdType PduRTxPduId;
+    PduIdType ExpectedRxNsduId;
 } CanTp_TxNsduConfigType;
 
 /*

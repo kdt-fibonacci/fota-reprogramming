@@ -17,21 +17,21 @@ const PduR_RoutingPathConfigType
     /*
      * Route 0
      *
-     * Tester -> DoIP -> PduR -> CanTp -> Target ECU
+     * Tester -> DoIP -> PduR -> CanTp -> ECU0
      *
      * DoIP는 Diagnostic Message의 TargetAddress를 보고
-     * DOIP_RXPDU_DIAG_REQ_TO_CANTP를 선택한다.
+     * ECU0용 DoIPRxPduId를 선택한다.
      *
      * PduR은 DoIPRxPduId를 기준으로 CanTpTxNsduId로 변환한다.
      */
     {
-        .PduRRoutingPathId = PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_TARGET,
+        .PduRRoutingPathId = PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_ECU0,
 
         .SourceModule      = PDUR_MODULE_DOIPTP,
-        .SourcePduId       = DOIP_RXPDU_DIAG_REQ_TO_CANTP,
+        .SourcePduId       = DOIP_RXPDU_DIAG_REQ_TO_CANTP_ECU0,
 
         .DestModule        = PDUR_MODULE_CANTP,
-        .DestPduId         = CANTP_TXNSDU_LOCAL_TO_REMOTE,
+        .DestPduId         = CANTP_TXNSDU_GATEWAY_TO_ECU0,
 
         .RoutingEvent      = PDUR_EVENT_RX_INDICATION
     },
@@ -39,7 +39,24 @@ const PduR_RoutingPathConfigType
     /*
      * Route 1
      *
-     * Target ECU -> CanTp -> PduR -> DoIP -> Tester
+     * Tester -> DoIP -> PduR -> CanTp -> ECU1
+     */
+    {
+        .PduRRoutingPathId = PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_ECU1,
+
+        .SourceModule      = PDUR_MODULE_DOIPTP,
+        .SourcePduId       = DOIP_RXPDU_DIAG_REQ_TO_CANTP_ECU1,
+
+        .DestModule        = PDUR_MODULE_CANTP,
+        .DestPduId         = CANTP_TXNSDU_GATEWAY_TO_ECU1,
+
+        .RoutingEvent      = PDUR_EVENT_RX_INDICATION
+    },
+
+    /*
+     * Route 2
+     *
+     * ECU0 -> CanTp -> PduR -> DoIP -> Tester
      *
      * CanTp는 Target ECU의 UDS Response를 재조립한 뒤
      * PduR-facing RxPduId 기준으로 PduR에 전달한다.
@@ -47,13 +64,30 @@ const PduR_RoutingPathConfigType
      * PduR은 CanTp가 보고한 PduR-facing RxPduId를 DoIPTxPduId로 변환한다.
      */
     {
-        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TO_DOIP_TARGET_TO_TESTER,
+        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TO_DOIP_ECU0_TO_TESTER,
 
         .SourceModule      = PDUR_MODULE_CANTP,
-        .SourcePduId       = PDUR_RXPDU_CANTP_TARGET_TO_TESTER,
+        .SourcePduId       = PDUR_RXPDU_CANTP_ECU0_TO_TESTER,
 
         .DestModule        = PDUR_MODULE_DOIPTP,
-        .DestPduId         = DOIP_TXPDU_DIAG_RES_FROM_CANTP,
+        .DestPduId         = DOIP_TXPDU_DIAG_RES_FROM_CANTP_ECU0,
+
+        .RoutingEvent      = PDUR_EVENT_RX_INDICATION
+    },
+
+    /*
+     * Route 3
+     *
+     * ECU1 -> CanTp -> PduR -> DoIP -> Tester
+     */
+    {
+        .PduRRoutingPathId = PDUR_ROUTE_CANTP_TO_DOIP_ECU1_TO_TESTER,
+
+        .SourceModule      = PDUR_MODULE_CANTP,
+        .SourcePduId       = PDUR_RXPDU_CANTP_ECU1_TO_TESTER,
+
+        .DestModule        = PDUR_MODULE_DOIPTP,
+        .DestPduId         = DOIP_TXPDU_DIAG_RES_FROM_CANTP_ECU1,
 
         .RoutingEvent      = PDUR_EVENT_RX_INDICATION
     }

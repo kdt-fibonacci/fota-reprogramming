@@ -39,7 +39,7 @@ const Can_HardwareObjectConfigType Can_HardwareObjectConfig[CAN_HOH_COUNT] =
     },
 
     {
-        .CanObjectId            = CAN_HOH_REMOTE_TO_LOCAL_RX,
+        .CanObjectId            = CAN_HOH_ECU0_TO_GATEWAY_RX,
         .CanObjectType          = CAN_OBJECT_TYPE_RECEIVE,
         .CanControllerId        = CAN_CONTROLLER_0,
         .CanObjectPayloadLength = CAN_MAX_DATA_PAYLOAD,
@@ -49,8 +49,25 @@ const Can_HardwareObjectConfigType Can_HardwareObjectConfig[CAN_HOH_COUNT] =
             {
                 .CanRxDestination = CAN_RX_DEST_FIFO0,
                 .CanFilterIndex   = 0U,
-                .CanFilterId1     = 0x7E0U,
-                .CanFilterId2     = 0x7E0U
+                .CanFilterId1     = CAN_ID_GATEWAY_ECU0,
+                .CanFilterId2     = CAN_ID_GATEWAY_ECU0
+            }
+        }
+    },
+
+    {
+        .CanObjectId            = CAN_HOH_ECU1_TO_GATEWAY_RX,
+        .CanObjectType          = CAN_OBJECT_TYPE_RECEIVE,
+        .CanControllerId        = CAN_CONTROLLER_0,
+        .CanObjectPayloadLength = CAN_MAX_DATA_PAYLOAD,
+
+        .ObjectConfig =
+        {   .Rx =
+            {
+                .CanRxDestination = CAN_RX_DEST_FIFO0,
+                .CanFilterIndex   = 1U,
+                .CanFilterId1     = CAN_ID_GATEWAY_ECU1,
+                .CanFilterId2     = CAN_ID_GATEWAY_ECU1
             }
         }
     }

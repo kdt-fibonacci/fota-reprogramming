@@ -37,6 +37,7 @@ typedef struct
     PduIdType CanTpTxNsduId;
     PduIdType PduRTxPduId;
     PduIdType CanIfTxPduId;
+    PduIdType ExpectedRxNsduId;
 
     uint16 TotalLength;
     uint16 TransmittedLength;
@@ -73,8 +74,8 @@ typedef struct {
 /*------------------------------------------------Static Variables---------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static CanTp_TxRuntimeType CanTp_TxRuntime;
-static CanTp_RxRuntimeType CanTp_RxRuntime;
+static CanTp_TxRuntimeType CanTp_TxRuntime[CANTP_TXNSDU_COUNT];
+static CanTp_RxRuntimeType CanTp_RxRuntime[CANTP_RXNSDU_COUNT];
 
 /*********************************************************************************************************************/
 /*----------------------------------------------Private Functions-----------------------------------------------------*/
@@ -88,43 +89,73 @@ static const CanTp_RxNsduConfigType* CanTp_FindRxNsduConfigByNpduId(
     PduIdType CanTpRxNpduId
 );
 
+static CanTp_TxRuntimeType* CanTp_GetTxRuntimeByTxNsduId(
+    PduIdType CanTpTxNsduId
+);
+
+static CanTp_TxRuntimeType* CanTp_GetTxRuntimeByTxNpduId(
+    PduIdType CanTpTxNpduId
+);
+
+static CanTp_TxRuntimeType* CanTp_FindTxRuntimeWaitingFc(
+    PduIdType ExpectedRxNsduId
+);
+
+static CanTp_RxRuntimeType* CanTp_GetRxRuntimeByRxNsduId(
+    PduIdType CanTpRxNsduId
+);
+
 static Std_ReturnType CanTp_SendSingleFrame(
     const CanTp_TxNsduConfigType* TxConfig,
+    CanTp_TxRuntimeType* TxRuntime,
     const PduInfoType* CanTpTxInfoPtr
 );
 
 static Std_ReturnType CanTp_SendFirstFrame(
-    const CanTp_TxNsduConfigType* TxConfig
+    const CanTp_TxNsduConfigType* TxConfig,
+    CanTp_TxRuntimeType* TxRuntime
 );
 
-static Std_ReturnType CanTp_SendNextConsecutiveFrame(void);
+static Std_ReturnType CanTp_SendNextConsecutiveFrame(
+    CanTp_TxRuntimeType* TxRuntime
+);
 
 static Std_ReturnType CanTp_SendFlowControl(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     uint8 FlowStatus
 );
 
 static void CanTp_HandleSingleFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 );
 
 static void CanTp_HandleFirstFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 );
 
 static void CanTp_HandleConsecutiveFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 );
 
 static void CanTp_HandleFlowControl(
+    const CanTp_RxNsduConfigType* RxConfig,
     const PduInfoType* PduInfoPtr
 );
 
-static void CanTp_ResetTxRuntime(void);
-static void CanTp_ResetRxRuntime(void);
+static void CanTp_ResetTxRuntime(
+    CanTp_TxRuntimeType* TxRuntime
+);
+
+static void CanTp_ResetRxRuntime(
+    CanTp_RxRuntimeType* RxRuntime
+);
 
 /*********************************************************************************************************************/
 /*---------------------------------------------Function Implementations----------------------------------------------*/
@@ -132,8 +163,17 @@ static void CanTp_ResetRxRuntime(void);
 
 void CanTp_Init(void)
 {
-    CanTp_ResetTxRuntime();
-    CanTp_ResetRxRuntime();
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_TXNSDU_COUNT; Index++)
+    {
+        CanTp_ResetTxRuntime(&CanTp_TxRuntime[Index]);
+    }
+
+    for (Index = 0U; Index < CANTP_RXNSDU_COUNT; Index++)
+    {
+        CanTp_ResetRxRuntime(&CanTp_RxRuntime[Index]);
+    }
 }
 
 Std_ReturnType CanTp_Transmit(
@@ -142,6 +182,7 @@ Std_ReturnType CanTp_Transmit(
 )
 {
     const CanTp_TxNsduConfigType* TxConfig;
+    CanTp_TxRuntimeType* TxRuntime;
 
     if ((CanTpTxInfoPtr == NULL_PTR) ||
         (CanTpTxInfoPtr->SduDataPtr == NULL_PTR))
@@ -155,7 +196,14 @@ Std_ReturnType CanTp_Transmit(
         return E_NOT_OK;
     }
 
-    if (CanTp_TxRuntime.State != CANTP_TX_STATE_IDLE)
+    TxRuntime = CanTp_GetTxRuntimeByTxNsduId(CanTpTxSduId);
+
+    if (TxRuntime == NULL_PTR)
+    {
+        return E_NOT_OK;
+    }
+
+    if (TxRuntime->State != CANTP_TX_STATE_IDLE)
     {
         return E_NOT_OK;
     }
@@ -181,12 +229,14 @@ Std_ReturnType CanTp_Transmit(
 
     if (CanTpTxInfoPtr->SduLength <= CANTP_SF_MAX_PAYLOAD_LENGTH)
     {
-        CanTp_TxRuntime.CanTpTxNsduId = TxConfig->CanTpTxNsduId;
-        CanTp_TxRuntime.PduRTxPduId   = TxConfig->PduRTxPduId;
-        CanTp_TxRuntime.CanIfTxPduId  = TxConfig->CanIfTxNpduId;
+        TxRuntime->CanTpTxNsduId    = TxConfig->CanTpTxNsduId;
+        TxRuntime->PduRTxPduId      = TxConfig->PduRTxPduId;
+        TxRuntime->CanIfTxPduId     = TxConfig->CanIfTxNpduId;
+        TxRuntime->ExpectedRxNsduId = TxConfig->ExpectedRxNsduId;
 
         return CanTp_SendSingleFrame(
             TxConfig,
+            TxRuntime,
             CanTpTxInfoPtr
         );
     }
@@ -197,31 +247,32 @@ Std_ReturnType CanTp_Transmit(
     }
 
     memcpy(
-        CanTp_TxRuntime.Buffer,
+        TxRuntime->Buffer,
         CanTpTxInfoPtr->SduDataPtr,
         CanTpTxInfoPtr->SduLength
     );
 
-    CanTp_TxRuntime.CanTpTxNsduId      = TxConfig->CanTpTxNsduId;
-    CanTp_TxRuntime.PduRTxPduId        = TxConfig->PduRTxPduId;
-    CanTp_TxRuntime.CanIfTxPduId       = TxConfig->CanIfTxNpduId;
+    TxRuntime->CanTpTxNsduId      = TxConfig->CanTpTxNsduId;
+    TxRuntime->PduRTxPduId        = TxConfig->PduRTxPduId;
+    TxRuntime->CanIfTxPduId       = TxConfig->CanIfTxNpduId;
+    TxRuntime->ExpectedRxNsduId   = TxConfig->ExpectedRxNsduId;
 
-    CanTp_TxRuntime.TotalLength        = CanTpTxInfoPtr->SduLength;
-    CanTp_TxRuntime.TransmittedLength  = CANTP_FF_DATA_LENGTH;
+    TxRuntime->TotalLength        = CanTpTxInfoPtr->SduLength;
+    TxRuntime->TransmittedLength  = CANTP_FF_DATA_LENGTH;
 
-    CanTp_TxRuntime.NextSequenceNumber = 1U;
-    CanTp_TxRuntime.BlockSize          = 0U;
-    CanTp_TxRuntime.BlockCounter       = 0U;
-    CanTp_TxRuntime.STmin              = 0U;
-    CanTp_TxRuntime.WaitFrameCount     = 0U;
+    TxRuntime->NextSequenceNumber = 1U;
+    TxRuntime->BlockSize          = 0U;
+    TxRuntime->BlockCounter       = 0U;
+    TxRuntime->STmin              = 0U;
+    TxRuntime->WaitFrameCount     = 0U;
 
-    if (CanTp_SendFirstFrame(TxConfig) != E_OK)
+    if (CanTp_SendFirstFrame(TxConfig, TxRuntime) != E_OK)
     {
-        CanTp_ResetTxRuntime();
+        CanTp_ResetTxRuntime(TxRuntime);
         return E_NOT_OK;
     }
 
-    CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_FC;
+    TxRuntime->State = CANTP_TX_STATE_WAIT_FC;
 
     return E_OK;
 }
@@ -232,6 +283,7 @@ void CanTp_RxIndication(
 )
 {
     const CanTp_RxNsduConfigType* RxConfig;
+    CanTp_RxRuntimeType* RxRuntime;
     uint8 PciType;
 
     if ((PduInfoPtr == NULL_PTR) ||
@@ -253,15 +305,22 @@ void CanTp_RxIndication(
 
     PciType = PduInfoPtr->SduDataPtr[0] & CANTP_PCI_TYPE_MASK;
 
-    if (PciType == CANTP_PCI_TYPE_FC)
-    {
-        CanTp_HandleFlowControl(PduInfoPtr);
-        return;
-    }
-
     RxConfig = CanTp_FindRxNsduConfigByNpduId(CanTpRxNpduId);
 
     if (RxConfig == NULL_PTR)
+    {
+        return;
+    }
+
+    if (PciType == CANTP_PCI_TYPE_FC)
+    {
+        CanTp_HandleFlowControl(RxConfig, PduInfoPtr);
+        return;
+    }
+
+    RxRuntime = CanTp_GetRxRuntimeByRxNsduId(RxConfig->CanTpRxNsduId);
+
+    if (RxRuntime == NULL_PTR)
     {
         return;
     }
@@ -270,19 +329,19 @@ void CanTp_RxIndication(
     {
         case CANTP_PCI_TYPE_SF:
         {
-            CanTp_HandleSingleFrame(RxConfig, PduInfoPtr);
+            CanTp_HandleSingleFrame(RxConfig, RxRuntime, PduInfoPtr);
             break;
         }
 
         case CANTP_PCI_TYPE_FF:
         {
-            CanTp_HandleFirstFrame(RxConfig, PduInfoPtr);
+            CanTp_HandleFirstFrame(RxConfig, RxRuntime, PduInfoPtr);
             break;
         }
 
         case CANTP_PCI_TYPE_CF:
         {
-            CanTp_HandleConsecutiveFrame(RxConfig, PduInfoPtr);
+            CanTp_HandleConsecutiveFrame(RxConfig, RxRuntime, PduInfoPtr);
             break;
         }
 
@@ -298,14 +357,23 @@ void CanTp_TxConfirmation(
     Std_ReturnType result
 )
 {
+    CanTp_TxRuntimeType* TxRuntime;
+
+    TxRuntime = CanTp_GetTxRuntimeByTxNpduId(CanTpTxNPduId);
+
+    if (TxRuntime == NULL_PTR)
+    {
+        return;
+    }
+
     CANTP_DEBUG_PRINTF(
         "[CanTp][TX-CNF] CanTpTxNPduId=%u Result=%u State=%u\r\n",
         CanTpTxNPduId,
         result,
-        CanTp_TxRuntime.State
+        TxRuntime->State
     );
 
-    if (CanTp_TxRuntime.State == CANTP_TX_STATE_IDLE)
+    if (TxRuntime->State == CANTP_TX_STATE_IDLE)
     {
         return;
     }
@@ -313,53 +381,58 @@ void CanTp_TxConfirmation(
     if (result != E_OK)
     {
         PduR_CanTpTxConfirmation(
-            CanTp_TxRuntime.PduRTxPduId,
+            TxRuntime->PduRTxPduId,
             E_NOT_OK
         );
 
-        CanTp_ResetTxRuntime();
+        CanTp_ResetTxRuntime(TxRuntime);
         return;
     }
 
-    if (CanTp_TxRuntime.TotalLength == 0U)
+    if (TxRuntime->TotalLength == 0U)
     {
         PduR_CanTpTxConfirmation(
-            CanTp_TxRuntime.PduRTxPduId,
+            TxRuntime->PduRTxPduId,
             E_OK
         );
 
-        CanTp_ResetTxRuntime();
+        CanTp_ResetTxRuntime(TxRuntime);
         return;
     }
 
-    if (CanTp_TxRuntime.State == CANTP_TX_STATE_WAIT_TX_CONFIRMATION)
+    if (TxRuntime->State == CANTP_TX_STATE_WAIT_TX_CONFIRMATION)
     {
-        if (CanTp_TxRuntime.TransmittedLength >= CanTp_TxRuntime.TotalLength)
+        if (TxRuntime->TransmittedLength >= TxRuntime->TotalLength)
         {
             PduR_CanTpTxConfirmation(
-                CanTp_TxRuntime.PduRTxPduId,
+                TxRuntime->PduRTxPduId,
                 E_OK
             );
 
-            CanTp_ResetTxRuntime();
+            CanTp_ResetTxRuntime(TxRuntime);
         }
-        else if ((CanTp_TxRuntime.BlockSize != 0U) &&
-                 (CanTp_TxRuntime.BlockCounter >= CanTp_TxRuntime.BlockSize))
+        else if ((TxRuntime->BlockSize != 0U) &&
+                 (TxRuntime->BlockCounter >= TxRuntime->BlockSize))
         {
-            CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_FC;
+            TxRuntime->State = CANTP_TX_STATE_WAIT_FC;
         }
         else
         {
-            CanTp_TxRuntime.State = CANTP_TX_STATE_SEND_CF;
+            TxRuntime->State = CANTP_TX_STATE_SEND_CF;
         }
     }
 }
 
 void CanTp_MainFunction(void)
 {
-    if (CanTp_TxRuntime.State == CANTP_TX_STATE_SEND_CF)
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_TXNSDU_COUNT; Index++)
     {
-        (void)CanTp_SendNextConsecutiveFrame();
+        if (CanTp_TxRuntime[Index].State == CANTP_TX_STATE_SEND_CF)
+        {
+            (void)CanTp_SendNextConsecutiveFrame(&CanTp_TxRuntime[Index]);
+        }
     }
 }
 
@@ -369,31 +442,37 @@ void CanTp_MainFunction(void)
 
 static Std_ReturnType CanTp_SendSingleFrame(
     const CanTp_TxNsduConfigType* TxConfig,
+    CanTp_TxRuntimeType* TxRuntime,
     const PduInfoType* CanTpTxInfoPtr
 )
 {
     PduInfoType CanIfPduInfo;
 
-    memset(CanTp_TxRuntime.CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+    if ((TxConfig == NULL_PTR) || (TxRuntime == NULL_PTR) || (CanTpTxInfoPtr == NULL_PTR))
+    {
+        return E_NOT_OK;
+    }
 
-    CanTp_TxRuntime.CanFrameBuffer[0] =
+    memset(TxRuntime->CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+
+    TxRuntime->CanFrameBuffer[0] =
         (uint8)(CANTP_PCI_TYPE_SF |
         ((uint8)(CanTpTxInfoPtr->SduLength >> 8U) & CANTP_PCI_LENGTH_MASK));
 
-    CanTp_TxRuntime.CanFrameBuffer[1] =
+    TxRuntime->CanFrameBuffer[1] =
         (uint8)(CanTpTxInfoPtr->SduLength & 0xFFU);
 
     memcpy(
-        &CanTp_TxRuntime.CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
+        &TxRuntime->CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
         CanTpTxInfoPtr->SduDataPtr,
         CanTpTxInfoPtr->SduLength
     );
 
-    CanIfPduInfo.SduDataPtr = CanTp_TxRuntime.CanFrameBuffer;
+    CanIfPduInfo.SduDataPtr = TxRuntime->CanFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
-    CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_TX_CONFIRMATION;
-    CanTp_TxRuntime.TotalLength = 0U;
+    TxRuntime->State = CANTP_TX_STATE_WAIT_TX_CONFIRMATION;
+    TxRuntime->TotalLength = 0U;
 
     CANTP_DEBUG_PRINTF(
         "[CanTp][TX] Frame=SF CanIfTxNpduId=%u TotalLength=%u\r\n",
@@ -413,38 +492,44 @@ static Std_ReturnType CanTp_SendSingleFrame(
 }
 
 static Std_ReturnType CanTp_SendFirstFrame(
-    const CanTp_TxNsduConfigType* TxConfig
+    const CanTp_TxNsduConfigType* TxConfig,
+    CanTp_TxRuntimeType* TxRuntime
 )
 {
     PduInfoType CanIfPduInfo;
 
-    if (CanTp_TxRuntime.TotalLength <= CANTP_FF_DATA_LENGTH)
+    if ((TxConfig == NULL_PTR) || (TxRuntime == NULL_PTR))
     {
         return E_NOT_OK;
     }
 
-    memset(CanTp_TxRuntime.CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+    if (TxRuntime->TotalLength <= CANTP_FF_DATA_LENGTH)
+    {
+        return E_NOT_OK;
+    }
 
-    CanTp_TxRuntime.CanFrameBuffer[0] =
+    memset(TxRuntime->CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+
+    TxRuntime->CanFrameBuffer[0] =
         (uint8)(CANTP_PCI_TYPE_FF |
-        ((CanTp_TxRuntime.TotalLength >> 8U) & CANTP_PCI_LENGTH_MASK));
+        ((TxRuntime->TotalLength >> 8U) & CANTP_PCI_LENGTH_MASK));
 
-    CanTp_TxRuntime.CanFrameBuffer[1] =
-        (uint8)(CanTp_TxRuntime.TotalLength & 0xFFU);
+    TxRuntime->CanFrameBuffer[1] =
+        (uint8)(TxRuntime->TotalLength & 0xFFU);
 
     memcpy(
-        &CanTp_TxRuntime.CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
-        CanTp_TxRuntime.Buffer,
+        &TxRuntime->CanFrameBuffer[CANTP_LENGTH_PCI_LENGTH],
+        TxRuntime->Buffer,
         CANTP_FF_DATA_LENGTH
     );
 
-    CanIfPduInfo.SduDataPtr = CanTp_TxRuntime.CanFrameBuffer;
+    CanIfPduInfo.SduDataPtr = TxRuntime->CanFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
     CANTP_DEBUG_PRINTF(
         "[CanTp][TX] Frame=FF CanIfTxNpduId=%u TotalLength=%u\r\n",
         TxConfig->CanIfTxNpduId,
-        CanTp_TxRuntime.TotalLength
+        TxRuntime->TotalLength
     );
 
     CANTP_DEBUG_PRINT_PDU(
@@ -458,32 +543,39 @@ static Std_ReturnType CanTp_SendFirstFrame(
     );
 }
 
-static Std_ReturnType CanTp_SendNextConsecutiveFrame(void)
+static Std_ReturnType CanTp_SendNextConsecutiveFrame(
+    CanTp_TxRuntimeType* TxRuntime
+)
 {
     PduInfoType CanIfPduInfo;
     uint16 RemainingLength;
     uint8 CopyLength;
 
-    if (CanTp_TxRuntime.TransmittedLength >= CanTp_TxRuntime.TotalLength)
+    if (TxRuntime == NULL_PTR)
+    {
+        return E_NOT_OK;
+    }
+
+    if (TxRuntime->TransmittedLength >= TxRuntime->TotalLength)
     {
         PduR_CanTpTxConfirmation(
-            CanTp_TxRuntime.PduRTxPduId,
+            TxRuntime->PduRTxPduId,
             E_OK
         );
 
-        CanTp_ResetTxRuntime();
+        CanTp_ResetTxRuntime(TxRuntime);
         return E_OK;
     }
 
-    if ((CanTp_TxRuntime.BlockSize != 0U) &&
-        (CanTp_TxRuntime.BlockCounter >= CanTp_TxRuntime.BlockSize))
+    if ((TxRuntime->BlockSize != 0U) &&
+        (TxRuntime->BlockCounter >= TxRuntime->BlockSize))
     {
-        CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_FC;
+        TxRuntime->State = CANTP_TX_STATE_WAIT_FC;
         return E_OK;
     }
 
     RemainingLength =
-        CanTp_TxRuntime.TotalLength - CanTp_TxRuntime.TransmittedLength;
+        TxRuntime->TotalLength - TxRuntime->TransmittedLength;
 
     if (RemainingLength > CANTP_CF_DATA_LENGTH)
     {
@@ -494,25 +586,25 @@ static Std_ReturnType CanTp_SendNextConsecutiveFrame(void)
         CopyLength = (uint8)RemainingLength;
     }
 
-    memset(CanTp_TxRuntime.CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+    memset(TxRuntime->CanFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
 
-    CanTp_TxRuntime.CanFrameBuffer[0] =
+    TxRuntime->CanFrameBuffer[0] =
         (uint8)(CANTP_PCI_TYPE_CF |
-        (CanTp_TxRuntime.NextSequenceNumber & CANTP_PCI_SN_MASK));
+        (TxRuntime->NextSequenceNumber & CANTP_PCI_SN_MASK));
 
     memcpy(
-        &CanTp_TxRuntime.CanFrameBuffer[1],
-        &CanTp_TxRuntime.Buffer[CanTp_TxRuntime.TransmittedLength],
+        &TxRuntime->CanFrameBuffer[1],
+        &TxRuntime->Buffer[TxRuntime->TransmittedLength],
         CopyLength
     );
 
-    CanIfPduInfo.SduDataPtr = CanTp_TxRuntime.CanFrameBuffer;
+    CanIfPduInfo.SduDataPtr = TxRuntime->CanFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
     CANTP_DEBUG_PRINTF(
         "[CanTp][TX] Frame=CF CanIfTxNpduId=%u SN=%u CopyLength=%u\r\n",
-        CanTp_TxRuntime.CanIfTxPduId,
-        CanTp_TxRuntime.NextSequenceNumber,
+        TxRuntime->CanIfTxPduId,
+        TxRuntime->NextSequenceNumber,
         CopyLength
     );
 
@@ -521,15 +613,15 @@ static Std_ReturnType CanTp_SendNextConsecutiveFrame(void)
         &CanIfPduInfo
     );
 
-    if (CanIf_Transmit(CanTp_TxRuntime.CanIfTxPduId, &CanIfPduInfo) == E_OK)
+    if (CanIf_Transmit(TxRuntime->CanIfTxPduId, &CanIfPduInfo) == E_OK)
     {
-        CanTp_TxRuntime.TransmittedLength += CopyLength;
+        TxRuntime->TransmittedLength += CopyLength;
 
-        CanTp_TxRuntime.NextSequenceNumber =
-            (uint8)((CanTp_TxRuntime.NextSequenceNumber + 1U) & CANTP_PCI_SN_MASK);
+        TxRuntime->NextSequenceNumber =
+            (uint8)((TxRuntime->NextSequenceNumber + 1U) & CANTP_PCI_SN_MASK);
 
-        CanTp_TxRuntime.BlockCounter++;
-        CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_TX_CONFIRMATION;
+        TxRuntime->BlockCounter++;
+        TxRuntime->State = CANTP_TX_STATE_WAIT_TX_CONFIRMATION;
 
         return E_OK;
     }
@@ -539,11 +631,17 @@ static Std_ReturnType CanTp_SendNextConsecutiveFrame(void)
 
 static void CanTp_HandleSingleFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 )
 {
     PduInfoType CanTpRxInfo;
     uint16 PayloadLength;
+
+    if ((RxConfig == NULL_PTR) || (RxRuntime == NULL_PTR) || (PduInfoPtr == NULL_PTR))
+    {
+        return;
+    }
 
     if (PduInfoPtr->SduLength < CANTP_LENGTH_PCI_LENGTH)
     {
@@ -565,12 +663,12 @@ static void CanTp_HandleSingleFrame(
     }
 
     memcpy(
-        CanTp_RxRuntime.Buffer,
+        RxRuntime->Buffer,
         &PduInfoPtr->SduDataPtr[CANTP_LENGTH_PCI_LENGTH],
         PayloadLength
     );
 
-    CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
+    CanTpRxInfo.SduDataPtr = RxRuntime->Buffer;
     CanTpRxInfo.SduLength  = PayloadLength;
 
     CANTP_DEBUG_PRINTF(
@@ -591,15 +689,22 @@ static void CanTp_HandleSingleFrame(
 
 static void CanTp_HandleFirstFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 )
 {
     uint16 TotalLength;
 
-    if (CanTp_RxRuntime.State != CANTP_RX_STATE_IDLE)
+    if ((RxConfig == NULL_PTR) || (RxRuntime == NULL_PTR) || (PduInfoPtr == NULL_PTR))
+    {
+        return;
+    }
+
+    if (RxRuntime->State != CANTP_RX_STATE_IDLE)
     {
         (void)CanTp_SendFlowControl(
             RxConfig,
+            RxRuntime,
             CANTP_FC_STATUS_WAIT
         );
         return;
@@ -620,27 +725,28 @@ static void CanTp_HandleFirstFrame(
     {
         (void)CanTp_SendFlowControl(
             RxConfig,
+            RxRuntime,
             CANTP_FC_STATUS_OVERFLOW
         );
         return;
     }
 
-    memset(CanTp_RxRuntime.Buffer, 0x00U, CANTP_RX_BUFFER_SIZE);
+    memset(RxRuntime->Buffer, 0x00U, CANTP_RX_BUFFER_SIZE);
 
     memcpy(
-        CanTp_RxRuntime.Buffer,
+        RxRuntime->Buffer,
         &PduInfoPtr->SduDataPtr[CANTP_LENGTH_PCI_LENGTH],
         CANTP_FF_DATA_LENGTH
     );
 
-    CanTp_RxRuntime.State                  = CANTP_RX_STATE_RECEIVING;
-    CanTp_RxRuntime.CanTpRxNsduId          = RxConfig->CanTpRxNsduId;
-    CanTp_RxRuntime.PduRRxPduId            = RxConfig->PduRRxPduId;
-    CanTp_RxRuntime.CanIfTxFcPduId         = RxConfig->CanIfTxFcPduId;
-    CanTp_RxRuntime.TotalLength            = TotalLength;
-    CanTp_RxRuntime.ReceivedLength         = CANTP_FF_DATA_LENGTH;
-    CanTp_RxRuntime.ExpectedSequenceNumber = 1U;
-    CanTp_RxRuntime.BlockCounter           = 0U;
+    RxRuntime->State                  = CANTP_RX_STATE_RECEIVING;
+    RxRuntime->CanTpRxNsduId          = RxConfig->CanTpRxNsduId;
+    RxRuntime->PduRRxPduId            = RxConfig->PduRRxPduId;
+    RxRuntime->CanIfTxFcPduId         = RxConfig->CanIfTxFcPduId;
+    RxRuntime->TotalLength            = TotalLength;
+    RxRuntime->ReceivedLength         = CANTP_FF_DATA_LENGTH;
+    RxRuntime->ExpectedSequenceNumber = 1U;
+    RxRuntime->BlockCounter           = 0U;
 
     CANTP_DEBUG_PRINTF(
         "[CanTp][RX] Frame=FF CanTpRxNsduId=%u PduRRxPduId=%u TotalLength=%u\r\n",
@@ -651,12 +757,14 @@ static void CanTp_HandleFirstFrame(
 
     (void)CanTp_SendFlowControl(
         RxConfig,
+        RxRuntime,
         CANTP_FC_STATUS_CTS
     );
 }
 
 static void CanTp_HandleConsecutiveFrame(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     const PduInfoType* PduInfoPtr
 )
 {
@@ -665,7 +773,12 @@ static void CanTp_HandleConsecutiveFrame(
     uint16 RemainingLength;
     uint8 CopyLength;
 
-    if (CanTp_RxRuntime.State != CANTP_RX_STATE_RECEIVING)
+    if ((RxConfig == NULL_PTR) || (RxRuntime == NULL_PTR) || (PduInfoPtr == NULL_PTR))
+    {
+        return;
+    }
+
+    if (RxRuntime->State != CANTP_RX_STATE_RECEIVING)
     {
         return;
     }
@@ -677,22 +790,22 @@ static void CanTp_HandleConsecutiveFrame(
 
     SequenceNumber = PduInfoPtr->SduDataPtr[0] & CANTP_PCI_SN_MASK;
 
-    if (SequenceNumber != CanTp_RxRuntime.ExpectedSequenceNumber)
+    if (SequenceNumber != RxRuntime->ExpectedSequenceNumber)
     {
         CANTP_DEBUG_PRINTF(
             "[CanTp][RX-ERR] SN mismatch Expected=%u Received=%u ReceivedLength=%u TotalLength=%u\r\n",
-            CanTp_RxRuntime.ExpectedSequenceNumber,
+            RxRuntime->ExpectedSequenceNumber,
             SequenceNumber,
-            CanTp_RxRuntime.ReceivedLength,
-            CanTp_RxRuntime.TotalLength
+            RxRuntime->ReceivedLength,
+            RxRuntime->TotalLength
         );
 
-        CanTp_ResetRxRuntime();
+        CanTp_ResetRxRuntime(RxRuntime);
         return;
     }
 
     RemainingLength =
-        CanTp_RxRuntime.TotalLength - CanTp_RxRuntime.ReceivedLength;
+        RxRuntime->TotalLength - RxRuntime->ReceivedLength;
 
     if (RemainingLength > CANTP_CF_DATA_LENGTH)
     {
@@ -703,39 +816,39 @@ static void CanTp_HandleConsecutiveFrame(
         CopyLength = (uint8)RemainingLength;
     }
 
-    if ((CanTp_RxRuntime.ReceivedLength + CopyLength) > CanTp_RxRuntime.TotalLength)
+    if ((RxRuntime->ReceivedLength + CopyLength) > RxRuntime->TotalLength)
     {
-        CanTp_ResetRxRuntime();
+        CanTp_ResetRxRuntime(RxRuntime);
         return;
     }
 
-    if ((CanTp_RxRuntime.ReceivedLength + CopyLength) > RxConfig->RxBufferSize)
+    if ((RxRuntime->ReceivedLength + CopyLength) > RxConfig->RxBufferSize)
     {
-        CanTp_ResetRxRuntime();
+        CanTp_ResetRxRuntime(RxRuntime);
         return;
     }
 
     memcpy(
-        &CanTp_RxRuntime.Buffer[CanTp_RxRuntime.ReceivedLength],
+        &RxRuntime->Buffer[RxRuntime->ReceivedLength],
         &PduInfoPtr->SduDataPtr[1],
         CopyLength
     );
 
-    CanTp_RxRuntime.ReceivedLength += CopyLength;
+    RxRuntime->ReceivedLength += CopyLength;
 
-    CanTp_RxRuntime.ExpectedSequenceNumber =
-        (uint8)((CanTp_RxRuntime.ExpectedSequenceNumber + 1U) & CANTP_PCI_SN_MASK);
+    RxRuntime->ExpectedSequenceNumber =
+        (uint8)((RxRuntime->ExpectedSequenceNumber + 1U) & CANTP_PCI_SN_MASK);
 
-    CanTp_RxRuntime.BlockCounter++;
+    RxRuntime->BlockCounter++;
 
-    if (CanTp_RxRuntime.ReceivedLength >= CanTp_RxRuntime.TotalLength)
+    if (RxRuntime->ReceivedLength >= RxRuntime->TotalLength)
     {
-        CanTpRxInfo.SduDataPtr = CanTp_RxRuntime.Buffer;
-        CanTpRxInfo.SduLength  = CanTp_RxRuntime.TotalLength;
+        CanTpRxInfo.SduDataPtr = RxRuntime->Buffer;
+        CanTpRxInfo.SduLength  = RxRuntime->TotalLength;
 
         CANTP_DEBUG_PRINTF(
             "[CanTp][RX] Complete Type=MF PduRRxPduId=%u\r\n",
-            CanTp_RxRuntime.PduRRxPduId
+            RxRuntime->PduRRxPduId
         );
 
         CANTP_DEBUG_PRINT_PDU(
@@ -744,21 +857,22 @@ static void CanTp_HandleConsecutiveFrame(
         );
 
         PduR_CanTpRxIndication(
-            CanTp_RxRuntime.PduRRxPduId,
+            RxRuntime->PduRRxPduId,
             &CanTpRxInfo
         );
 
-        CanTp_ResetRxRuntime();
+        CanTp_ResetRxRuntime(RxRuntime);
         return;
     }
 
     if ((RxConfig->BlockSize != 0U) &&
-        (CanTp_RxRuntime.BlockCounter >= RxConfig->BlockSize))
+        (RxRuntime->BlockCounter >= RxConfig->BlockSize))
     {
-        CanTp_RxRuntime.BlockCounter = 0U;
+        RxRuntime->BlockCounter = 0U;
 
         (void)CanTp_SendFlowControl(
             RxConfig,
+            RxRuntime,
             CANTP_FC_STATUS_CTS
         );
     }
@@ -766,21 +880,27 @@ static void CanTp_HandleConsecutiveFrame(
 
 static Std_ReturnType CanTp_SendFlowControl(
     const CanTp_RxNsduConfigType* RxConfig,
+    CanTp_RxRuntimeType* RxRuntime,
     uint8 FlowStatus
 )
 {
     PduInfoType CanIfPduInfo;
 
-    memset(CanTp_RxRuntime.FcFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+    if ((RxConfig == NULL_PTR) || (RxRuntime == NULL_PTR))
+    {
+        return E_NOT_OK;
+    }
 
-    CanTp_RxRuntime.FcFrameBuffer[0] =
+    memset(RxRuntime->FcFrameBuffer, 0x00U, CANTP_CAN_FRAME_LENGTH);
+
+    RxRuntime->FcFrameBuffer[0] =
         (uint8)(CANTP_PCI_TYPE_FC |
         (FlowStatus & CANTP_PCI_LENGTH_MASK));
 
-    CanTp_RxRuntime.FcFrameBuffer[1] = RxConfig->BlockSize;
-    CanTp_RxRuntime.FcFrameBuffer[2] = RxConfig->STmin;
+    RxRuntime->FcFrameBuffer[1] = RxConfig->BlockSize;
+    RxRuntime->FcFrameBuffer[2] = RxConfig->STmin;
 
-    CanIfPduInfo.SduDataPtr = CanTp_RxRuntime.FcFrameBuffer;
+    CanIfPduInfo.SduDataPtr = RxRuntime->FcFrameBuffer;
     CanIfPduInfo.SduLength  = CANTP_CAN_FRAME_LENGTH;
 
     CANTP_DEBUG_PRINTF(
@@ -801,19 +921,33 @@ static Std_ReturnType CanTp_SendFlowControl(
 }
 
 static void CanTp_HandleFlowControl(
+    const CanTp_RxNsduConfigType* RxConfig,
     const PduInfoType* PduInfoPtr
 )
 {
+    CanTp_TxRuntimeType* TxRuntime;
     uint8 FlowStatus;
     uint8 BlockSize;
     uint8 STmin;
+
+    if ((RxConfig == NULL_PTR) || (PduInfoPtr == NULL_PTR))
+    {
+        return;
+    }
+
+    TxRuntime = CanTp_FindTxRuntimeWaitingFc(RxConfig->CanTpRxNsduId);
+
+    if (TxRuntime == NULL_PTR)
+    {
+        return;
+    }
 
     if (PduInfoPtr->SduLength < 3U)
     {
         return;
     }
 
-    if (CanTp_TxRuntime.State != CANTP_TX_STATE_WAIT_FC)
+    if (TxRuntime->State != CANTP_TX_STATE_WAIT_FC)
     {
         return;
     }
@@ -831,38 +965,38 @@ static void CanTp_HandleFlowControl(
 
     if (FlowStatus == CANTP_FC_STATUS_CTS)
     {
-        CanTp_TxRuntime.BlockSize      = BlockSize;
-        CanTp_TxRuntime.BlockCounter   = 0U;
-        CanTp_TxRuntime.STmin          = STmin;
-        CanTp_TxRuntime.WaitFrameCount = 0U;
-        CanTp_TxRuntime.State          = CANTP_TX_STATE_SEND_CF;
+        TxRuntime->BlockSize      = BlockSize;
+        TxRuntime->BlockCounter   = 0U;
+        TxRuntime->STmin          = STmin;
+        TxRuntime->WaitFrameCount = 0U;
+        TxRuntime->State          = CANTP_TX_STATE_SEND_CF;
     }
     else if (FlowStatus == CANTP_FC_STATUS_WAIT)
     {
-        CanTp_TxRuntime.WaitFrameCount++;
+        TxRuntime->WaitFrameCount++;
 
-        if (CanTp_TxRuntime.WaitFrameCount > CANTP_MAX_WAIT_FRAME_COUNT)
+        if (TxRuntime->WaitFrameCount > CANTP_MAX_WAIT_FRAME_COUNT)
         {
             PduR_CanTpTxConfirmation(
-                CanTp_TxRuntime.PduRTxPduId,
+                TxRuntime->PduRTxPduId,
                 E_NOT_OK
             );
 
-            CanTp_ResetTxRuntime();
+            CanTp_ResetTxRuntime(TxRuntime);
         }
         else
         {
-            CanTp_TxRuntime.State = CANTP_TX_STATE_WAIT_FC;
+            TxRuntime->State = CANTP_TX_STATE_WAIT_FC;
         }
     }
     else
     {
         PduR_CanTpTxConfirmation(
-            CanTp_TxRuntime.PduRTxPduId,
+            TxRuntime->PduRTxPduId,
             E_NOT_OK
         );
 
-        CanTp_ResetTxRuntime();
+        CanTp_ResetTxRuntime(TxRuntime);
     }
 }
 
@@ -900,14 +1034,101 @@ static const CanTp_RxNsduConfigType* CanTp_FindRxNsduConfigByNpduId(
     return NULL_PTR;
 }
 
-static void CanTp_ResetTxRuntime(void)
+static CanTp_TxRuntimeType* CanTp_GetTxRuntimeByTxNsduId(
+    PduIdType CanTpTxNsduId
+)
 {
-    memset(&CanTp_TxRuntime, 0x00U, sizeof(CanTp_TxRuntime));
-    CanTp_TxRuntime.State = CANTP_TX_STATE_IDLE;
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_TXNSDU_COUNT; Index++)
+    {
+        if (CanTp_TxNsduConfig[Index].CanTpTxNsduId == CanTpTxNsduId)
+        {
+            return &CanTp_TxRuntime[Index];
+        }
+    }
+
+    return NULL_PTR;
 }
 
-static void CanTp_ResetRxRuntime(void)
+static CanTp_TxRuntimeType* CanTp_GetTxRuntimeByTxNpduId(
+    PduIdType CanTpTxNpduId
+)
 {
-    memset(&CanTp_RxRuntime, 0x00U, sizeof(CanTp_RxRuntime));
-    CanTp_RxRuntime.State = CANTP_RX_STATE_IDLE;
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_TXNSDU_COUNT; Index++)
+    {
+        /*
+         * CanIf returns the Tx N-PDU handle associated with this CanTp channel.
+         * In this project the CanTp Tx N-PDU and CanIf Tx L-PDU IDs are aligned.
+         */
+        if (CanTp_TxNsduConfig[Index].CanIfTxNpduId == CanTpTxNpduId)
+        {
+            return &CanTp_TxRuntime[Index];
+        }
+    }
+
+    return NULL_PTR;
+}
+
+static CanTp_TxRuntimeType* CanTp_FindTxRuntimeWaitingFc(
+    PduIdType ExpectedRxNsduId
+)
+{
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_TXNSDU_COUNT; Index++)
+    {
+        if ((CanTp_TxRuntime[Index].State == CANTP_TX_STATE_WAIT_FC) &&
+            (CanTp_TxRuntime[Index].ExpectedRxNsduId == ExpectedRxNsduId))
+        {
+            return &CanTp_TxRuntime[Index];
+        }
+    }
+
+    return NULL_PTR;
+}
+
+static CanTp_RxRuntimeType* CanTp_GetRxRuntimeByRxNsduId(
+    PduIdType CanTpRxNsduId
+)
+{
+    uint8 Index;
+
+    for (Index = 0U; Index < CANTP_RXNSDU_COUNT; Index++)
+    {
+        if (CanTp_RxNsduConfig[Index].CanTpRxNsduId == CanTpRxNsduId)
+        {
+            return &CanTp_RxRuntime[Index];
+        }
+    }
+
+    return NULL_PTR;
+}
+
+static void CanTp_ResetTxRuntime(
+    CanTp_TxRuntimeType* TxRuntime
+)
+{
+    if (TxRuntime == NULL_PTR)
+    {
+        return;
+    }
+
+    memset(TxRuntime, 0x00U, sizeof(*TxRuntime));
+    TxRuntime->State = CANTP_TX_STATE_IDLE;
+}
+
+static void CanTp_ResetRxRuntime(
+    CanTp_RxRuntimeType* RxRuntime
+)
+{
+    if (RxRuntime == NULL_PTR)
+    {
+        return;
+    }
+
+    memset(RxRuntime, 0x00U, sizeof(*RxRuntime));
+    RxRuntime->State = CANTP_RX_STATE_IDLE;
 }

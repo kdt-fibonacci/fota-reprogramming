@@ -14,26 +14,31 @@
 
 /*
  * 1. DoIP -> CanTp
- *    Tester의 UDS Request를 CAN Target ECU로 전달
+ *    Tester의 UDS Request를 CAN ECU0/ECU1로 전달
  *
  * 2. CanTp -> DoIP
- *    CAN Target ECU의 UDS Response를 Tester에게 전달
+ *    CAN ECU0/ECU1의 UDS Response를 Tester에게 전달
  */
-#define PDUR_ROUTING_PATH_COUNT                         (2U)
+#define PDUR_ROUTING_PATH_COUNT                         (4U)
 
 /*********************************************************************************************************************/
 /*--------------------------------------------------Routing Path IDs-------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_TARGET       (0U)
-#define PDUR_ROUTE_CANTP_TO_DOIP_TARGET_TO_TESTER       (1U)
+#define PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_ECU0         (0U)
+#define PDUR_ROUTE_DOIP_TO_CANTP_TESTER_TO_ECU1         (1U)
+#define PDUR_ROUTE_CANTP_TO_DOIP_ECU0_TO_TESTER         (2U)
+#define PDUR_ROUTE_CANTP_TO_DOIP_ECU1_TO_TESTER         (3U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------PduR-facing PDU IDs-----------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define PDUR_RXPDU_CANTP_TARGET_TO_TESTER               (0U)
-#define PDUR_TXCONF_CANTP_TESTER_TO_TARGET              (0U)
+#define PDUR_RXPDU_CANTP_ECU0_TO_TESTER                 (0U)
+#define PDUR_RXPDU_CANTP_ECU1_TO_TESTER                 (1U)
+
+#define PDUR_TXCONF_CANTP_TESTER_TO_ECU0                (0U)
+#define PDUR_TXCONF_CANTP_TESTER_TO_ECU1                (1U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Types--------------------------------------------------------*/

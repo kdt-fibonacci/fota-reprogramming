@@ -58,7 +58,7 @@
 // #define TEST_DOIP_PAYLOAD_TYPE_DIAG_MESSAGE            (0x8001U)
 
 // #define TEST_TESTER_LOGICAL_ADDRESS                    (DOIP_LOGICAL_ADDRESS_TESTER)
-// #define TEST_TARGET_LOGICAL_ADDRESS                    (DOIP_LOGICAL_ADDRESS_TARGET_ECU)
+// #define TEST_TARGET_LOGICAL_ADDRESS                    (DOIP_LOGICAL_ADDRESS_TARGET_ECU_0)
 
 // /*
 //  * Logical test steps
