@@ -1,2 +1,5 @@
 *.o
+*.sig
+*.hex
+*.bin
 ota_client

@@ -13,6 +13,7 @@
 #include "state.h"
 
 extern STATE current_state;
+extern int current_install_progress;
 
 const int DOIP_PORT = 13400;
 const uint16_t RPI_SA = 0x0E00; 
@@ -269,7 +270,7 @@ int startOtaTransfer(const std::string& targetAddrStr, const std::string& versio
         
         std::cout << "[UDS] Sending 0x36 block sn: 0x" << std::hex << (int)sn 
                   << " | Offset: " << std::dec << offset << "/" << binaryData.size() << std::endl;
-
+        current_install_progress = (offset / binaryData.size()) * 100;
         sendUdsPacket(sock, targetAddr, 0x36, udsPayload);
         
         uint8_t res_buf[1500];
