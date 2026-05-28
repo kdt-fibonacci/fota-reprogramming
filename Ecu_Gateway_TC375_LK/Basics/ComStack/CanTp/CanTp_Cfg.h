@@ -29,11 +29,11 @@
  * CanTp는 이 payload가 UDS 요청인지 응답인지 해석하지 않는다.
  * 여기서는 ISO-TP connection의 방향만 표현한다.
  */
-#define CANTP_TXNSDU_GATEWAY_TO_ECU0        (0U)
-#define CANTP_TXNSDU_GATEWAY_TO_ECU1        (1U)
+#define CANTP_TXNSDU_GATEWAY_TO_MOTION        (0U)
+#define CANTP_TXNSDU_GATEWAY_TO_LIGHTING        (1U)
 
-#define CANTP_RXNSDU_ECU0_TO_GATEWAY        (0U)
-#define CANTP_RXNSDU_ECU1_TO_GATEWAY        (1U)
+#define CANTP_RXNSDU_MOTION_TO_GATEWAY        (0U)
+#define CANTP_RXNSDU_LIGHTING_TO_GATEWAY        (1U)
 
 /*********************************************************************************************************************/
 /*----------------------------------------------------N-PDU IDs------------------------------------------------------*/
@@ -45,11 +45,11 @@
  * N-PDU는 CanIf와 CanTp 사이에서 오가는 CAN frame 단위의 handle이다.
  * SF/FF/CF/FC 구분은 CAN ID나 PDU ID가 아니라 ISO-TP PCI 값으로 판단한다.
  */
-#define CANTP_TXNPDU_GATEWAY_TO_ECU0        (0U)
-#define CANTP_TXNPDU_GATEWAY_TO_ECU1        (1U)
+#define CANTP_TXNPDU_GATEWAY_TO_MOTION        (0U)
+#define CANTP_TXNPDU_GATEWAY_TO_LIGHTING        (1U)
 
-#define CANTP_RXNPDU_ECU0_TO_GATEWAY        (0U)
-#define CANTP_RXNPDU_ECU1_TO_GATEWAY        (1U)
+#define CANTP_RXNPDU_MOTION_TO_GATEWAY        (0U)
+#define CANTP_RXNPDU_LIGHTING_TO_GATEWAY        (1U)
 
 /*********************************************************************************************************************/
 /*--------------------------------------------------Frame Constants--------------------------------------------------*/

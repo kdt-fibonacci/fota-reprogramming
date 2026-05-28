@@ -28,12 +28,12 @@
 /*-----------------------------------------------------CAN IDs-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#define CAN_ID_GATEWAY_ECU0               (0x500U)
-#define CAN_ID_ECU0                       (0x501U)
-#define CAN_ID_GATEWAY_ECU1               (0x600U)
-#define CAN_ID_ECU1                       (0x601U)
+#define CAN_ID_GATEWAY_MOTION               (0x500U)
+#define CAN_ID_MOTION                       (0x501U)
+#define CAN_ID_GATEWAY_LIGHTING               (0x600U)
+#define CAN_ID_LIGHTING                       (0x601U)
 
-#define CAN_ID_GATEWAY                    (CAN_ID_GATEWAY_ECU0)
+#define CAN_ID_GATEWAY                    (CAN_ID_GATEWAY_MOTION)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------Hardware Object IDs-----------------------------------------------*/
@@ -44,16 +44,16 @@
  * CAN 계층은 방향별 Hardware Object만 관리한다.
  */
 #define CAN_HOH_LOCAL_TO_REMOTE_TX        (0U)
-#define CAN_HOH_ECU0_TO_GATEWAY_RX        (1U)
-#define CAN_HOH_ECU1_TO_GATEWAY_RX        (2U)
+#define CAN_HOH_MOTION_TO_GATEWAY_RX        (1U)
+#define CAN_HOH_LIGHTING_TO_GATEWAY_RX        (2U)
 
 /*
  * Readability aliases.
  */
 #define CAN_HTH_LOCAL_TO_REMOTE            (CAN_HOH_LOCAL_TO_REMOTE_TX)
-#define CAN_HRH_ECU0_TO_GATEWAY            (CAN_HOH_ECU0_TO_GATEWAY_RX)
-#define CAN_HRH_ECU1_TO_GATEWAY            (CAN_HOH_ECU1_TO_GATEWAY_RX)
-#define CAN_HRH_REMOTE_TO_LOCAL            (CAN_HRH_ECU0_TO_GATEWAY)
+#define CAN_HRH_MOTION_TO_GATEWAY            (CAN_HOH_MOTION_TO_GATEWAY_RX)
+#define CAN_HRH_LIGHTING_TO_GATEWAY            (CAN_HOH_LIGHTING_TO_GATEWAY_RX)
+#define CAN_HRH_REMOTE_TO_LOCAL            (CAN_HRH_MOTION_TO_GATEWAY)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------General------------------------------------------------------*/

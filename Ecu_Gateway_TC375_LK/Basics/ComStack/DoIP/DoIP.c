@@ -238,7 +238,7 @@ Std_ReturnType DoIP_TpTransmit(
      * PduR은 DoIPTxPduId만 전달한다.
      * DoIP는 DoIPTxPduId를 기준으로 Source Logical Address를 결정한다.
      *
-     * SourceAddress는 DoIPTxPduId에 매핑된 ECU0/ECU1 logical address가 된다.
+     * SourceAddress는 DoIPTxPduId에 매핑된 Motion/Lighting logical address가 된다.
      */
     DoIP_WriteUint16BigEndian(
         &PayloadPtr[0],
@@ -518,9 +518,9 @@ static void DoIP_HandleDiagnosticMessage(
      * PduR은 Logical Address를 직접 해석하지 않고 DoIPRxPduId만 보고 라우팅한다.
      *
      * 현재 구조:
-     * TargetAddress = DOIP_LOGICAL_ADDRESS_TARGET_ECU_0/1
-     * -> DoIPRxPduId = DOIP_RXPDU_DIAG_REQ_TO_CANTP_ECU0/1
-     * -> PduR route  = DoIP -> CanTp ECU0/1
+     * TargetAddress = DOIP_LOGICAL_ADDRESS_TARGET_MOTION/LIGHTING
+     * -> DoIPRxPduId = DOIP_RXPDU_DIAG_REQ_TO_CANTP_MOTION/LIGHTING
+     * -> PduR route  = DoIP -> CanTp Motion/Lighting
      */
     PduR_DoIPTpRxIndication(
         RxConfig->DoIPRxPduId,
