@@ -54,6 +54,37 @@ void lcd_ready_screen(
         lcd_print(" YES   [NO]");
 }
 
+
+void lcd_recovery_screen(
+    const char* ecu_name,
+    const char* version,
+    int yes_selected
+)
+{
+    char line[17];
+
+    lcd_clear();
+
+    /* 첫 줄 */
+    snprintf(
+        line,
+        sizeof(line),
+        "%s FAIL",
+        ecu_name
+    );
+
+    lcd_set_cursor(0, 0);
+    lcd_print(line);
+
+    /* 둘째 줄 */
+    lcd_set_cursor(1, 0);
+
+    if (yes_selected)
+        lcd_print("[RB]   NO ");
+    else
+        lcd_print(" RB   [NO]");
+}
+
 void lcd_downloading_screen(int percent)
 {
     char line[17];

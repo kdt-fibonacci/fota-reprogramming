@@ -39,6 +39,8 @@ int current_install_progress = 0;
 int prev_download_progress    = -1;
 int prev_install_progress = -1;
 
+bool isRecoveryGo = false;
+
 char update_ecu_name[16];
 char update_ecu_version[16];
 
@@ -105,6 +107,11 @@ void render_screen()
             break;
         
         case RECOVERY:
+            lcd_recovery_screen(
+                update_ecu_name,
+                update_ecu_version,
+                current_menu == MENU_YES
+            );
             break;
         
         case REPORTING:
@@ -134,7 +141,7 @@ void left_button_interrupt()
     last_left_time = now;
 
     puts("LEFT");
-    if (current_state != READY)
+    if (current_state != READY && current_state != RECOVERY)
         return;
 
     current_menu = MENU_YES;
@@ -154,7 +161,7 @@ void right_button_interrupt()
     last_right_time = now;
 
     puts("RIGHT");
-    if (current_state != READY)
+    if (current_state != READY && current_state != RECOVERY)
         return;
 
     current_menu = MENU_NO;
@@ -192,6 +199,21 @@ void enter_button_interrupt()
 
             current_menu = MENU_YES;
         }
+    }
+    else if (current_state == RECOVERY)
+    {
+        if (current_menu == MENU_YES)
+        {
+            isRecoveryGo = true;
+        }
+        else
+        {
+            isRecoveryGo = false;
+        }
+
+        current_state = WAIT;
+
+        current_menu = MENU_YES;
     }
 }
 

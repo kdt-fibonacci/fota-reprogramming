@@ -11,6 +11,12 @@ void lcd_update_screen(
     int yes_selected
 );
 
+void lcd_recovery_screen(
+    const char* ecu_name,
+    const char* version,
+    int yes_selected
+);
+
 void lcd_downloading_screen(int percent);
 
 void lcd_flashing_screen(int percent);
