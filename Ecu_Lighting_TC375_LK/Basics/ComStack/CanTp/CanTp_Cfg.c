@@ -26,7 +26,7 @@ const CanTp_RxNsduConfigType CanTp_RxNsduConfig[CANTP_RXNSDU_COUNT] =
 {
     {
         .CanTpRxNsduId  = CANTP_RXNSDU_REMOTE_TO_LOCAL,
-        .CanIfRxNpduId  = CANIF_RXPDU_REMOTE_TO_LOCAL,
+        .CanIfRxNpduId  = CANTP_RXNPDU_REMOTE_TO_LOCAL,
         .CanIfTxFcPduId = CANIF_TXPDU_LOCAL_TO_REMOTE,
         .PduRRxPduId    = PDUR_RXPDU_CANTP_REMOTE_TO_LOCAL,
         .RxBufferSize   = CANTP_RX_BUFFER_SIZE,

@@ -50,8 +50,8 @@ const Can_HardwareObjectConfigType Can_HardwareObjectConfig[CAN_HOH_COUNT] =
             {
                 .CanRxDestination = CAN_RX_DEST_FIFO0,
                 .CanFilterIndex   = 0U,
-                .CanFilterId1     = 0x7E1U,
-                .CanFilterId2     = 0x7E1U
+                .CanFilterId1     = CAN_ID_REMOTE_TO_LOCAL,
+                .CanFilterId2     = CAN_ID_REMOTE_TO_LOCAL
             }
         }
     }
