@@ -17,19 +17,43 @@ extern STATE current_state;
 const int DOIP_PORT = 13400;
 const uint16_t RPI_SA = 0x0E00; 
 
-struct DataChunk {
-    uint32_t address;
-    std::vector<uint8_t> data;
-};
+// 💡 바이너리 파일 수신 시 타겟 제어기가 플래싱을 시작할 베이스 주소 정의 (프로젝트 사양에 맞게 수정 가능)
+const uint32_t FLASH_START_ADDRESS = 0x80000000; 
 
 uint8_t hstob(const std::string& hex) { return (uint8_t)std::stoul(hex, nullptr, 16); }
 
-uint32_t calculateChunkChecksum(const std::vector<uint8_t>& data) {
-    uint32_t sum = 0;
-    for (uint8_t b : data) sum += b;
-    return sum;
+uint32_t calculateChunkCRC32(const std::vector<uint8_t>& data) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (uint8_t byte : data) {
+        crc ^= byte;
+        for (int i = 0; i < 8; i++) {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320;
+            else
+                crc >>= 1;
+        }
+    }
+    return ~crc; 
 }
 
+int recv_with_retry(int sock, uint8_t* buf, int max_len) {
+    int retries = 20; 
+    while (retries > 0) {
+        int rLen = recv(sock, buf, max_len, 0);
+        if (rLen > 0) return rLen; 
+        
+        if (rLen == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            retries--;
+            std::cout << "Retries: " << retries << '\n';
+        } else {
+            return -1; 
+        }
+    }
+    return -1; 
+}
+
+// 💡 [수정 포인트 1]: 라즈베리파이가 송신(TX)하는 raw 패킷을 Hex 형태로 완벽하게 시각화 로그 출력
 void sendUdsPacket(int sock, uint16_t targetAddr, uint8_t sid, const std::vector<uint8_t>& payload) {
     uint32_t udsLen = payload.size() + 1;
     uint32_t doipPayloadLen = udsLen + 4;
@@ -42,20 +66,31 @@ void sendUdsPacket(int sock, uint16_t targetAddr, uint8_t sid, const std::vector
     pkt.push_back((targetAddr >> 8) & 0xFF); pkt.push_back(targetAddr & 0xFF);
     pkt.push_back(sid);
     pkt.insert(pkt.end(), payload.begin(), payload.end());
+
+    // ----------------------------------------------------
+    // 💡 RAW TX 패킷 터미널 Hex 로깅 시스템 안착
+    // ----------------------------------------------------
+    std::cout << "[DoIP][TX] Raw Packet (Len=" << pkt.size() << "): ";
+    std::ios_base::fmtflags f(std::cout.flags()); // 기존 std::cout 포맷 백업
+    for (uint8_t byte : pkt) {
+        std::cout << std::setw(2) << std::setfill('0') << std::hex << (int)byte << " ";
+    }
+    std::cout << std::endl;
+    std::cout.flags(f); // 기존 std::cout 포맷 복원
+    // ----------------------------------------------------
+
     send(sock, pkt.data(), pkt.size(), 0);
 }
 
 int checkUdsResponse(uint8_t* res, int len, uint8_t expectedPositiveSid, uint16_t expectedRid = 0) {
-    // 1. 수신한 원시 바이너리 데이터 패킷 터미널에 Hex 형태로 출력
     std::cout << "[DoIP][RX] Raw Packet (Len=" << len << "): ";
-    std::ios_base::fmtflags f(std::cout.flags()); // 기존 std::cout 포맷 백업
+    std::ios_base::fmtflags f(std::cout.flags()); 
     for (int i = 0; i < len; ++i) {
         std::cout << std::setw(2) << std::setfill('0') << std::hex << (int)res[i] << " ";
     }
     std::cout << std::endl;
-    std::cout.flags(f); // 기존 std::cout 포맷 복원
+    std::cout.flags(f); 
 
-    // 2. 버퍼 내에서 유효한 DoIP Diagnostic Message 헤더 마커(0x02 FD 80 01) 동적 탐색
     int doip_offset = -1;
     for (int i = 0; i <= len - 8; i++) {
         if (res[i] == 0x02 && res[i+1] == 0xFD && res[i+2] == 0x80 && res[i+3] == 0x01) {
@@ -69,7 +104,6 @@ int checkUdsResponse(uint8_t* res, int len, uint8_t expectedPositiveSid, uint16_
         return -100; 
     }
 
-    // 3. DoIP 헤더(8바이트) + 주소 정보(SA 2바이트, TA 2바이트)를 반영한 동적 SID 인덱스 획득
     int sid_index = doip_offset + 12;
     if (sid_index >= len) return -100;
 
@@ -88,7 +122,6 @@ int checkUdsResponse(uint8_t* res, int len, uint8_t expectedPositiveSid, uint16_
         return nrc;
     }
 
-    // 기대하지 않은 엉뚱한 매칭 에러 시 정보 표출
     std::cout << "⚠️ [MISMATCH] Expected SID: 0x" << std::hex << (int)expectedPositiveSid 
               << ", Detected SID: 0x" << (int)sid << std::dec << " at index " << sid_index << std::endl;
 
@@ -97,9 +130,13 @@ int checkUdsResponse(uint8_t* res, int len, uint8_t expectedPositiveSid, uint16_
 
 bool routingActivation(int sock) {
     uint8_t actReq[11] = {0x02, 0xFD, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x0E, 0x00, 0x00};
+    
+    // routingActivation은 기존 하드코딩 send 구조이므로 가독성을 위해 직접 출력 바인딩
+    std::cout << "[DoIP][TX] Raw Packet (Len=11): 02 fd 00 05 00 00 00 03 0e 00 00" << std::endl;
     send(sock, actReq, sizeof(actReq), 0);
+    
     uint8_t res[32];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return (len >= 8 && res[2] == 0x00 && res[3] == 0x06);
 }
 
@@ -107,7 +144,7 @@ int enterProgrammingSession(int sock, uint16_t targetAddr) {
     std::cout << "[UDS] Entering Programming Session (0x10 03)..." << std::endl;
     sendUdsPacket(sock, targetAddr, 0x10, {0x03});
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x50);
 }
 
@@ -117,7 +154,7 @@ int changeDiagnosticSession(int sock, uint16_t targetAddr, uint8_t sessionType) 
     
     sendUdsPacket(sock, targetAddr, 0x10, { sessionType });
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x50);
 }
 
@@ -126,7 +163,7 @@ int requestDownload(int sock, uint16_t targetAddr, uint32_t addr, uint32_t size)
     std::vector<uint8_t> p = { 0x00, 0x44, (uint8_t)(addr >> 24), (uint8_t)(addr >> 16), (uint8_t)(addr >> 8), (uint8_t)addr, (uint8_t)(size >> 24), (uint8_t)(size >> 16), (uint8_t)(size >> 8), (uint8_t)size };
     sendUdsPacket(sock, targetAddr, 0x34, p);
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x74);
 }
 
@@ -134,7 +171,7 @@ int exitTransfer(int sock, uint16_t targetAddr) {
     std::cout << "[UDS] Transfer Exit (0x37)..." << std::endl;
     sendUdsPacket(sock, targetAddr, 0x37, {});
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x77);
 }
 
@@ -143,7 +180,7 @@ int verifyIntegrity(int sock, uint16_t targetAddr, uint32_t checksum) {
     std::vector<uint8_t> p = { 0x01, 0xFF, 0x01, (uint8_t)(checksum >> 24), (uint8_t)(checksum >> 16), (uint8_t)(checksum >> 8), (uint8_t)checksum };
     sendUdsPacket(sock, targetAddr, 0x31, p);
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x71);
 }
 
@@ -153,67 +190,44 @@ int requestBankSwap(int sock, uint16_t targetAddr) {
     sendUdsPacket(sock, targetAddr, 0x31, p);
     
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
+    int len = recv_with_retry(sock, res, sizeof(res));
     return checkUdsResponse(res, len, 0x71);
 }
 
-// ECU 하드 리셋 요청 함수 (0x11 01)
+// 단계 8 사양에 맞춤 하드 리셋(SID 0x11, Sub-function 0x01) 함수 추가
 int requestEcuReset(int sock, uint16_t targetAddr) {
     std::cout << "[UDS] Sending ECU Hard Reset Command (0x11 01)..." << std::endl;
     std::vector<uint8_t> p = { 0x01 }; // 0x01: hardReset
     sendUdsPacket(sock, targetAddr, 0x11, p);
 
     uint8_t res[64];
-    int len = recv(sock, res, sizeof(res), 0);
-    return checkUdsResponse(res, len, 0x51); // 0x51: Positive SID
+    int len = recv_with_retry(sock, res, sizeof(res));
+    return checkUdsResponse(res, len, 0x51); // 0x51: Positive SID (0x11 + 0x40)
 }
 
-int recv_with_retry(int sock, uint8_t* buf, int max_len) {
-    int retries = 5; // 최대 5번 재시도 (ECU 처리 시간 확보)
-    while (retries > 0) {
-        int rLen = recv(sock, buf, max_len, 0);
-        if (rLen > 0) return rLen; // 데이터 수신 성공
-        
-        // 데이터가 아직 안 왔으면(errno 11) 50ms 대기 후 재시도
-        if (rLen == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            retries--;
-        } else {
-            return -1; // 진짜 소켓 에러
-        }
-    }
-    return -1; // 타임아웃
-}
-
+// ota_comm.cpp 사양에 맞춰 억지 HEX 라인 파싱을 걷어내고, .bin 순수 바이너리 스트리밍 방식으로 완벽 통합
 int startOtaTransfer(const std::string& targetAddrStr, const std::string& version, const std::string& gatewayIp) {
     uint16_t targetAddr = (uint16_t)std::stoul(targetAddrStr, nullptr, 16);
-    std::string hexPath = targetAddrStr + "_" + version + ".hex";
     
-    std::cout << "\n[ENGINE] Parsing HEX file: " << hexPath << std::endl;
-    std::ifstream file(hexPath);
-    if (!file.is_open()) { std::cerr << "[ERROR] Cannot open HEX file." << std::endl; return -1; }
+    // ota_comm.cpp에서 다운로드 완료하여 보관 중인 .bin 패키지 경로 매칭
+    std::string binPath = targetAddrStr + "_" + version + ".bin";
+    
+    std::cout << "\n[ENGINE] Loading BIN file in binary mode: " << binPath << std::endl;
+    std::ifstream file(binPath, std::ios::binary | std::ios::ate); 
+    if (!file.is_open()) { std::cerr << "[ERROR] Cannot open BIN file." << std::endl; return -1; }
 
-    // return 0; // 임시로 바로 통과되도록
-    
-    std::vector<DataChunk> chunks;
-    uint32_t baseAddr = 0; std::string line;
-    while (std::getline(file, line)) {
-        if (line[0] != ':') continue;
-        uint8_t len = hstob(line.substr(1, 2));
-        uint16_t offset = (hstob(line.substr(3, 2)) << 8) | hstob(line.substr(5, 2));
-        uint8_t type = hstob(line.substr(7, 2));
-        if (type == 0x00) {
-            uint32_t fullAddr = baseAddr + offset;
-            std::vector<uint8_t> d;
-            for (int i = 0; i < len; i++) d.push_back(hstob(line.substr(9 + (i * 2), 2)));
-            if (!chunks.empty() && chunks.back().address + chunks.back().data.size() == fullAddr) 
-                chunks.back().data.insert(chunks.back().data.end(), d.begin(), d.end());
-            else chunks.push_back({fullAddr, d});
-        } else if (type == 0x04) { 
-            baseAddr = (hstob(line.substr(9, 2)) << 24) | (hstob(line.substr(11, 2)) << 16); 
-        }
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::vector<uint8_t> binaryData(size);
+    if (!file.read(reinterpret_cast<char*>(binaryData.data()), size)) {
+        std::cerr << "[ERROR] Failed to read binary data from file." << std::endl;
+        file.close();
+        return -1;
     }
     file.close();
+
+    std::cout << "[ENGINE] Successfully loaded " << binaryData.size() << " bytes of pure binary code.\n";
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     struct timeval tv; tv.tv_sec = 3; tv.tv_usec = 0;
@@ -241,113 +255,93 @@ int startOtaTransfer(const std::string& targetAddrStr, const std::string& versio
         close(sock); return nrc;
     }
 
-    std::vector<uint8_t> fullData;
-    uint32_t startAddr = chunks[0].address;
-    for (size_t i = 0; i < chunks.size(); ++i) {
-        if (i > 0) {
-            uint32_t gap = chunks[i].address - (chunks[i-1].address + chunks[i-1].data.size());
-            if (gap > 0) fullData.insert(fullData.end(), gap, 0xFF); // 갭은 0xFF 패딩
-        }
-        fullData.insert(fullData.end(), chunks[i].data.begin(), chunks[i].data.end());
-    }
-
-    // 0x34(Request Download)를 루프 밖에서 호출
-    nrc = requestDownload(sock, targetAddr, startAddr, fullData.size());
+    // ① 0x34 Request Download (순수 단일 블록으로 단 1회 전체 크기 요청 인터락 구축)
+    nrc = requestDownload(sock, targetAddr, FLASH_START_ADDRESS, binaryData.size());
     if (nrc != 0) { close(sock); return nrc; }
 
-    // 0x36(Transfer Data)을 전체 데이터에 대해 루프 수행
+    // ② 0x36 Transfer Data 블록 반복 전송
     uint8_t sn = 1;
     uint32_t offset = 0;
-    while (offset < fullData.size()) {
-        uint32_t currLen = (fullData.size() - offset > 1024) ? 1024 : (fullData.size() - offset);
+    while (offset < binaryData.size()) {
+        uint32_t currLen = (binaryData.size() - offset > 1024) ? 1024 : (binaryData.size() - offset);
         std::vector<uint8_t> udsPayload = { sn };
-        udsPayload.insert(udsPayload.end(), fullData.begin() + offset, fullData.begin() + offset + currLen);
+        udsPayload.insert(udsPayload.end(), binaryData.begin() + offset, binaryData.begin() + offset + currLen);
         
-        // sn 로그 출력 추가
         std::cout << "[UDS] Sending 0x36 block sn: 0x" << std::hex << (int)sn 
-                  << " | Offset: " << std::dec << offset << "/" << fullData.size() << std::endl;
+                  << " | Offset: " << std::dec << offset << "/" << binaryData.size() << std::endl;
 
         sendUdsPacket(sock, targetAddr, 0x36, udsPayload);
         
         uint8_t res_buf[1500];
         int rLen = recv_with_retry(sock, res_buf, sizeof(res_buf));
-        if (rLen < 0)
-        {
+        if (rLen < 0) {
             printf("recv failed: errno=%d (%s)\n", errno, strerror(errno));
+            close(sock); return -1;
         }
         int transferRes = checkUdsResponse(res_buf, rLen, 0x76);
         
         if (transferRes == 0) {
             offset += currLen;
-            sn = (sn == 0xFF) ? 0x00 : sn + 1; // 0x01~0xFF 반복
+            sn = (sn == 0xFF) ? 0x00 : sn + 1; 
         } else {
             std::cerr << "[ERROR] Transfer Data failed with NRC: 0x" << std::hex << transferRes << std::dec << std::endl;
             close(sock); return transferRes;
         }
     }
 
-    // 0x37(Transfer Exit)을 루프 밖에서 호출
+    // ③ 0x37 Transfer Exit
     if ((nrc = exitTransfer(sock, targetAddr)) != 0) { close(sock); return nrc; }
     
-    // 0x31(Verify Integrity)을 루프 밖에서 호출
-    uint32_t checksum = calculateChunkChecksum(fullData);
+    // ④ 0x31 Verify Integrity
+    uint32_t checksum = calculateChunkCRC32(binaryData);
     if ((nrc = verifyIntegrity(sock, targetAddr, checksum)) != 0) { close(sock); return nrc; }
 
     std::cout << "\n✅ Flashing completed successfully!" << std::endl;
-    // State 8: WAIT_ACTIVATION
-current_state = WAIT_ACTIVATION; // state.h 전역 변수 동기화
+    current_state = WAIT_ACTIVATION; 
     
     bool safeStateAchieved = false;
     int retryCounter = 0;
-    const int MAX_RETRIES = 120; // 3초 간격으로 최대 120번 수행 = 총 6분 대기
+    const int MAX_RETRIES = 120; 
 
     std::cout << "\n[WAIT] Vehicle data verified. Monitoring vehicle for Safe State (Stop & Gear P)..." << std::endl;
 
     while (!safeStateAchieved && retryCounter < MAX_RETRIES) {
-        // Programming Session(0x10 02) 권한 격상 요청을 통한 정차 상태 감지 폴링
         nrc = changeDiagnosticSession(sock, targetAddr, 0x02);
 
         if (nrc == 0) {
-            // ① 대기 탈출 성공: ECU가 수락(0x50)함 -> 차가 완벽히 안전 정차 상태 도달!
             std::cout << "✅ [UDS] Safe State Confirmed by ECU. Programming Session (0x10 02) Opened!" << std::endl;
             safeStateAchieved = true;
         } 
         else if (nrc == 0x22) {
-            // ② 대기 유지: ECU가 거부(0x7F 10 22 ConditionsNotCorrect)함 -> 차가 아직 주행 중임!
             std::cout << "⚠️ [UDS] ECU Response: Conditions Not Correct (0x22). Vehicle is moving. Retrying in 3 seconds... [" 
                       << retryCounter + 1 << "/" << MAX_RETRIES << "]" << std::endl;
             
             retryCounter++;
-            std::this_thread::sleep_for(std::chrono::seconds(3)); // 소켓 유지한 채 3초 대기
+            std::this_thread::sleep_for(std::chrono::seconds(3)); 
         } 
         else {
-            // ③ 치명적 에러: 다른 규격 에러 발생 시 기능안전(Functional Safety)을 위해 탈출 및 예외처리
             std::cerr << "❌ [CRITICAL] Unexpected UDS Session Error: 0x" << std::hex << nrc << std::dec << std::endl;
             close(sock); return nrc;
         }
     }
 
-    // 타임아웃 예외 처리 (장시간 주행으로 정차하지 않은 경우 활성화 연기)
     if (!safeStateAchieved) {
         std::cerr << "❌ [TIMEOUT] Vehicle did not enter safe state within timeout. Postponing activation." << std::endl;
         close(sock); 
-        return 0x22; // 호출부 상위 레이어로 거부 코드 반환하여 주행 우선순위 보장
+        return 0x22; 
     }
 
-    // 4단계: 최고 보안 등급(0x10 02) 도달 확인 후 원자적 A/B 뱅크 스왑 최종 실행
-    current_state = ACTIVATION; // state.h 전역 변수 동기화
+    current_state = ACTIVATION; 
     int swapResult = requestBankSwap(sock, targetAddr);
 
     if (swapResult != 0) {
-        // 리커버리 상태 진입 (뱅크 스왑 시퀀스 실패 시 기존 오리지널 뱅크 유지)
         current_state = RECOVERY;
         std::cerr << "⚠️ [RECOVERY] Critical error during bank swap. Rolled back to stable bank." << std::endl;
         close(sock); return swapResult;
     }
 
-    std::cout << "🚀 [SUCCESS] Bank swap command accepted. Activating Reset routing..." << std::endl;
-
-    // 💡 [새로 추가된 제어 흐름] 단계 8: 뱅크 스왑 예약 성공 직후 하드 리셋(0x11 01) 연쇄 사출
+    std::cout << "🚀 [SUCCESS] Bank swap command accepted. Target ECU is rebooting with new firmware..." << std::endl;
+    // 뱅크 스왑 성공 직후 타겟 제어기에 단계 8 사양의 Hard Reset(0x11 01) 명령어 연쇄 방출
     int resetResult = requestEcuReset(sock, targetAddr);
     if (resetResult != 0) {
         std::cerr << "⚠️ [WARNING] Bank swap succeeded, but ECU Reset command was rejected. Code: 0x" 
