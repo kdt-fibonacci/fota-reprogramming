@@ -34,7 +34,7 @@
  * DoIP는 해당 메시지를 CanTp 방향으로 라우팅하기 위한 DoIPRxPduId로 변환한다.
  */
 #define DOIP_LOGICAL_ADDRESS_TARGET_MOTION              (0x1234U)
-#define DOIP_LOGICAL_ADDRESS_TARGET_LIGHTING              (0x5678U)
+#define DOIP_LOGICAL_ADDRESS_TARGET_LIGHTING            (0x5678U)
 
 /*
  * Tester Logical Address 기본값
@@ -81,8 +81,8 @@
  * 현재 구조에서는 Gateway 자체 진단을 하지 않으므로
  * DoIP Rx 경로는 Motion/Lighting으로 향하는 CanTp 방향만 존재한다.
  */
-#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_MOTION              (0U)
-#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_LIGHTING              (1U)
+#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_MOTION            (0U)
+#define DOIP_RXPDU_DIAG_REQ_TO_CANTP_LIGHTING          (1U)
 #define DOIP_RXPDU_COUNT                               (2U)
 
 /*
@@ -91,8 +91,8 @@
  * 현재 구조에서는 Motion/Lighting에서 올라온 UDS Response를
  * DoIP Diagnostic Message로 감싸 Tester에게 돌려준다.
  */
-#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_MOTION            (0U)
-#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_LIGHTING            (1U)
+#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_MOTION          (0U)
+#define DOIP_TXPDU_DIAG_RES_FROM_CANTP_LIGHTING        (1U)
 #define DOIP_TXPDU_COUNT                               (2U)
 
 /*********************************************************************************************************************/
