@@ -1,6 +1,7 @@
 *
 
 !/Ecu_Motion_TC375_LK/
+!/Ecu_Motion_TC375_LK/Cpu0_Main.c
 !/Ecu_Motion_TC375_LK/Apps/
 !/Ecu_Motion_TC375_LK/Apps/**
 !/Ecu_Motion_TC375_LK/Basics/
@@ -15,6 +16,7 @@
 !/Ecu_Motion_TC375_LK/Utils/**
 
 !/Ecu_Lighting_TC375_LK/
+!/Ecu_Lighting_TC375_LK/Cpu0_Main.c
 !/Ecu_Lighting_TC375_LK/Apps/
 !/Ecu_Lighting_TC375_LK/Apps/**
 !/Ecu_Lighting_TC375_LK/Basics/
@@ -29,6 +31,7 @@
 !/Ecu_Lighting_TC375_LK/Utils/**
 
 !/Ecu_Gateway_TC375_LK/
+!/Ecu_Gateway_TC375_LK/Cpu0_Main.c
 !/Ecu_Gateway_TC375_LK/Apps/
 !/Ecu_Gateway_TC375_LK/Apps/**
 !/Ecu_Gateway_TC375_LK/Basics/

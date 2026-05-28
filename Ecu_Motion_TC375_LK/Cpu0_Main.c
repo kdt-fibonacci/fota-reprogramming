@@ -2,7 +2,11 @@
 /*-----------------------------------------------------Includes------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-#include <Time.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdbool.h>
+
+#include "Ifx_Types.h"
 #include "IfxCpu.h"
 #include "IfxScuWdt.h"
 
@@ -15,35 +19,18 @@
 #include "CanIf.h"
 #include "CanTp.h"
 #include "PduR.h"
-#include "LwIP.h"
-#include "DoIP.h"
-#include "SoAd.h"
 #include "Dcm.h"
 
+#include "FotaHandler.h"
+
+#include "Time.h"
 #include "Can_Cfg.h"
 
-
 /*********************************************************************************************************************/
-/*------------------------------------------------Global Variables---------------------------------------------------*/
-/*********************************************************************************************************************/
-
-IfxCpu_syncEvent g_cpuSyncEvent;
-
-/*
- * Gateway에서 Target 응답이 다시 DoIP_TpTransmit()까지 올라왔는지 확인하기 위한 테스트 플래그.
- *
- * 주의:
- * 이 변수는 테스트용이다.
- * DoIP_TpTransmit() 내부에서 Diagnostic Message Response를 생성한 뒤 TRUE로 세팅해줘야 한다.
- */
-volatile boolean Test_DoIPResponseReceived = FALSE;
-
-/*********************************************************************************************************************/
-/*------------------------------------------------Static Variables---------------------------------------------------*/
+/*------------------------------------------------------Macros-------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-static volatile uint32 Test_Tick1ms = 0U;
-
+#define TEST_MAIN_PERIOD_MS                  (1U)
 
 /*********************************************************************************************************************/
 /*------------------------------------------------Private Functions--------------------------------------------------*/
@@ -70,8 +57,9 @@ void core0_main(void)
 
     Test_InitModules();
 
+    UART_Printf("\r\n");
     UART_Printf("========================================\r\n");
-    UART_Printf("[Gw] Gateway FOTA UDS Sequence Test Start\r\n");
+    UART_Printf("[Motion] Target DCM Responder Start\r\n");
     UART_Printf("========================================\r\n");
 
     while (1)
@@ -79,8 +67,6 @@ void core0_main(void)
         Test_MainFunctions();
 
         Shared_Util_Time_DelayMs(1);
-
-        Test_Tick1ms++;
     }
 }
 
@@ -95,26 +81,34 @@ static void Test_InitModules(void)
     Can_Init();
 
     (void)Can_SetControllerMode(
-        CAN_CONTROLLER_0,
-        CAN_CS_STARTED
+    CAN_CONTROLLER_0,
+    CAN_CS_STARTED
     );
 
     CanIf_Init();
     CanTp_Init();
-
     PduR_Init();
-    LwIP_Init();
-    DoIP_Init();
-    SoAd_Init();
     Dcm_Init();
+    FOTA_ProvisionInitialOnce();
 }
 
 static void Test_MainFunctions(void)
 {
+    /*
+     * 순서는 크게 아래 흐름이면 된다.
+     *
+     * 1. CAN Rx frame 처리
+     * 2. CanTp 재조립/송신 상태머신 처리
+     * 3. DCM pending request 처리
+     * 4. CAN Tx pending frame 처리
+     */
     Can_MainFunction_Read();
+
     CanTp_MainFunction();
+
+    Dcm_MainFunction();
+
     Can_MainFunction_Write();
 
-    LwIP_MainFunction();
-    Dcm_MainFunction();
+    FOTAHandlerMain();
 }
