@@ -16,7 +16,6 @@
 #include "state.h"
 #include "struct.h"
 
-
 using json = nlohmann::json;
 
 std::mutex queue_mutex;
@@ -73,7 +72,7 @@ long getServerFileSize(const std::string& url) {
     if (!curl) return -1;
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L); // 헤더만 슥 요청
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L); // 헤더만 요청
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
     if (curl_easy_perform(curl) == CURLE_OK) {
@@ -91,7 +90,7 @@ bool downloadFile(const std::string& url, const std::string& save_path) {
     long local_bytes = getLocalFileSize(save_path);
     long server_bytes = getServerFileSize(url);
 
-    // 1. 💡 [핵심 방어]: 만약 로컬에 이미 받아둔 크기가 서버 원본 크기와 '같거나 더 크다면'
+    // 1. [핵심 방어]: 만약 로컬에 이미 받아둔 크기가 서버 원본 크기와 '같거나 더 크다면'
     // 이미 100% 온전하게 다 받은 파일이므로, 서버를 찌르지 않고 즉시 완료(true) 처리합니다.
     if (server_bytes > 0 && local_bytes >= server_bytes) {
         std::cout << "🎯 [DOWNLOAD SKIP] " << save_path << " 파일은 이미 100% 다운로드 완료되어 있습니다. (스킵)" << std::endl;
@@ -101,7 +100,7 @@ bool downloadFile(const std::string& url, const std::string& save_path) {
     CURL *curl = curl_easy_init();
     if (!curl) return false;
 
-    // 2. 파일 오픈 모드를 "ab"로 개방 (지우지 않고 이어붙이기)
+    // 2. 파일 오픈 모드를 "ab"로 개방 (지우지 않고 이어붙이기 - 바이너리 모드 필수)
     FILE *fp = fopen(save_path.c_str(), "ab");
     if (!fp) { curl_easy_cleanup(curl); return false; }
 
@@ -109,9 +108,9 @@ bool downloadFile(const std::string& url, const std::string& save_path) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 
-// 3. 로컬에 받아둔 데이터 조각이 원본보다 작을 때만 안전하게 이어받기(Resume) 가동
+    // 3. 로컬에 받아둔 데이터 조각이 원본보다 작을 때만 안전하게 이어받기(Resume) 가동
     if (local_bytes > 0 && local_bytes < server_bytes) {
-        std::cout << "[이어받기] 기존 파일 조각(" << local_bytes << " / " << server_bytes << " bytes) 발견. 이어서 받습니다." << std::endl;
+        std::cout << "[이어받기] 기존 파일 조각 (" << local_bytes << " / " << server_bytes << " bytes) 발견. 이어서 받습니다." << std::endl;
         curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, (curl_off_t)local_bytes);
     }
 
@@ -186,7 +185,7 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     update_ecu_version[sizeof(update_ecu_version) - 1] = '\0';
     
     /* ========================= */
-    /* 상태 변경 및 승인 대기  */
+    /* 상태 변경 및 승인 대기   */
     /* ========================= */
     current_state = READY;
 
@@ -206,24 +205,25 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     /* ========================= */
     current_state = DOWNLOAD;
     reportStatusToServer(addr, ver, "DOWNLOADING");
-    std::string hex_file = addr + "_" + ver + ".hex";
+    
+    // 💡 [변경 완료]: 다운로드 받을 로컬 타겟 파일 포맷을 .hex에서 .bin으로 변경했습니다.
+    std::string bin_file = addr + "_" + ver + ".bin";
     std::string sig_file = addr + "_" + ver + ".sig";
+    
     while (true) {
         current_download_progress = 0; 
-        std::cout << "📥 [DOWNLOAD] 펌웨어 및 서명 패키지 다운로드 다운링크 활성화..." << std::endl;
+        std::cout << "📥 [DOWNLOAD] Pure Binary 펌웨어 및 서명 패키지 다운로드 다운링크 활성화..." << std::endl;
         
-        // 두 전송 연산이 모두 무사히 true(완료 혹은 완전 스킵)를 뱉어야 탈출 조건 충족
-        if (downloadFile(f_url, hex_file) && downloadFile(s_url, sig_file)) {
-            std::cout << "✅ [DOWNLOAD SUCCESS] 패키지 무결성 조각 병합 100% 안착 완료!" << std::endl;
+        // 두 전송 연산이 모두 무사히 true를 반환하면 다운로드 성공
+        if (downloadFile(f_url, bin_file) && downloadFile(s_url, sig_file)) {
+            std::cout << "✅ [DOWNLOAD SUCCESS] Binary 패키지 메모리 락 안착 100% 완료!" << std::endl;
             current_download_progress = 100;
             break; 
         }
         
-        // 여기에 걸렸다는 건 중간에 전송 소켓이 파괴되었거나, 피어가 다운되었다는 증거
         std::cerr << "⚠️ [DOWNLOAD INTERRUPT] 백엔드 데이터 전송 노드가 끊겼거나 닫혔습니다." << std::endl;
         std::cerr << "⏳ [자동 복구 지연] 5초 후 기존에 저장된 바이트 조각 끝점부터 자동으로 이어받기를 가동합니다...\n" << std::endl;
         
-        // 커널 버퍼 비우기 시간 및 네트워크 어댑터 재정렬을 위해 5초 휴식 (CPU 소모 없음)
         std::this_thread::sleep_for(std::chrono::seconds(5));
     }
 
@@ -232,6 +232,7 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     /* ========================= */
     current_state = VERIFICATION;
 
+    // 외부 보안 검증 모듈이 이제 .hex 대신 생성된 .bin을 타겟으로 검증을 매칭합니다.
     if (!verifyFirmwareSecurity(addr, ver, LOCAL_PUBLIC_KEY_PATH)) {
         current_state = REPORTING;
         reportStatusToServer(addr, ver, "AUTH_FAILED");
@@ -243,6 +244,8 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     /* ========================= */
     current_state = INSTALL;
     reportStatusToServer(addr, ver, "FLASHING");
+    
+    // startOtaTransfer 내부에서 주소 정보 조립 루프 없이 지정 .bin 파일을 다이렉트로 DoIP 스트리밍 송출합니다.
     int result = startOtaTransfer(addr, ver, GATEWAY_IP);
 
     // State 11: REPORTING
@@ -277,7 +280,7 @@ void performInitialSync() {
     curl_easy_setopt(curl, CURLOPT_URL, CHECK_URL.c_str());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req_data.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L); // 연결 제한 3초
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L); 
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
@@ -289,20 +292,18 @@ void performInitialSync() {
             auto res_json = json::parse(response_string);
             for (const auto& update : res_json["updates"]) {
                 if (update.value("update", false)) {
-                    // 업데이트할 목록이 있으면 Queue에 넣기
                     queue_mutex.lock();
                     update_queue.push({update["address"], update["version"], update["firmware_url"], update["signature_url"]});
                     queue_mutex.unlock();
 
                     current_state = READY;
-
-                    //executeUpdate(update["addr"], update["ver"], update["firware_url"], update["signature_url"]);
                 }
             }
         } catch (const std::exception& e) {
             std::cerr << "[Error] Initial Sync JSON Error: " << e.what() << std::endl;
         }
     }
+    headers = NULL; // 가독성 관리용
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 }
@@ -325,14 +326,11 @@ class ota_callback : public virtual mqtt::callback {
                         return;
                     }
                 }
-                // 업데이트할 목록이 생으면 Queue에 넣기
                 queue_mutex.lock();
                 update_queue.push({addr, ver, data["firmware_url"], data["signature_url"]});
                 queue_mutex.unlock();
 
                 current_state = READY;
-
-                //executeUpdate(update["addr"], update["ver"], update["firmware_url"], update["signature_url"]);
             }
         } catch (const std::exception& e) {
             std::cerr << "[Error] MQTT Payload Parse Error: " << e.what() << std::endl;
@@ -345,12 +343,12 @@ class ota_callback : public virtual mqtt::callback {
 };
 
 void runOtaService() {
-    current_state = IDLE; // State 2: IDLE
+    current_state = IDLE; 
     curl_global_init(CURL_GLOBAL_ALL);
 
     performInitialSync();
 
-    current_state = WAIT; // State 3: WAIT
+    current_state = WAIT; 
     try {
         mqtt::async_client client(MQTT_ADDRESS, CLIENT_ID);
         ota_callback cb;
@@ -385,18 +383,16 @@ std::pair<int, int> parseVersion(const std::string& versionStr) {
     return {0, 0};
 }
 
-// 💡 [추가] 구버전 여부를 안전하게 검사하는 함수 (target <= current 이면 true)
 bool isDowngradeOrSame(const std::string& targetVer, const std::string& currentVer) {
     auto target = parseVersion(targetVer);
     auto current = parseVersion(currentVer);
 
-    if (target.first < current.first) return true;  // Major 버전이 낮음
-    if (target.first == current.first && target.second <= current.second) return true; // Minor 버전이 낮거나 같음
+    if (target.first < current.first) return true;  
+    if (target.first == current.first && target.second <= current.second) return true; 
 
     return false;
 }
 
-// 업데이트 큐 검사하며 업데이트 지시를 내리는 스레드 함수
 void* ota_worker_thread(void* arg)
 {
     while (true)
@@ -411,16 +407,11 @@ void* ota_worker_thread(void* arg)
         if (update_queue.empty())
         {
             queue_mutex.unlock();
-
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(1000)
-            );
-
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             continue;
         }
 
         UpdateItem item = update_queue.front();
-
         queue_mutex.unlock();
 
         auto localEcus = loadLocalVersions();
@@ -428,18 +419,16 @@ void* ota_worker_thread(void* arg)
 
         for (const auto& ecu : localEcus) {
             if (ecu.address == item.addr) {
-                // 큐에 담긴 타겟 버전이 현재 파일에 기록된 버전보다 낮거나 같다면 필터링 대상
                 if (isDowngradeOrSame(item.ver, ecu.version)) {
                     std::cerr << "\n⚠️ [ROLLBACK BLOCK] 제어기 0x" << item.addr 
                               << "의 요청 버전(" << item.ver << ")이 현재 버전(" 
-                              << ecu.version << ")보다 낮거나 같습니다. UI를 띄우지 않고 대기열에서 자동 폐기합니다." << std::endl;
+                              << ecu.version << ")보다 낮거나 같습니다. 대기열에서 폐기합니다." << std::endl;
                     isInvalidVersion = true;
                 }
                 break;
             }
         }
 
-        // 구버전이거나 이미 반영된 동일 버전이면 큐에서 즉시 무소음 삭제(pop)
         if (isInvalidVersion) {
             queue_mutex.lock();
             if (!update_queue.empty() && update_queue.front().addr == item.addr) {
@@ -449,19 +438,16 @@ void* ota_worker_thread(void* arg)
 
             if (update_queue.empty()) current_state = WAIT;
             else                      current_state = PENDING;
-            continue; // 💥 하단의 executeUpdate(READY 진입)를 건너뛰고 다음 작업으로 패스!
+            continue; 
         }
 
         if(current_state == PENDING) continue;
 
         executeUpdate(item.addr, item.ver, item.firmware_url, item.signature_url);
 
-        // 사용자가 NO 누른 경우
         if (current_state == PENDING)
         {
-            std::this_thread::sleep_for(
-                std::chrono::seconds(1)
-            );
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             
             queue_mutex.lock();
             update_queue.pop();
@@ -471,20 +457,15 @@ void* ota_worker_thread(void* arg)
             continue;
         }
 
-        // 성공/실패 완료된 경우만 제거
         queue_mutex.lock();
-
         if (!update_queue.empty())
         {
             update_queue.pop();
         }
-
         queue_mutex.unlock();
 
-        if (update_queue.empty())
-            current_state = WAIT;
-        else
-            current_state = PENDING;
+        if (update_queue.empty()) current_state = WAIT;
+        else                      current_state = PENDING;
     }
 
     return NULL;
