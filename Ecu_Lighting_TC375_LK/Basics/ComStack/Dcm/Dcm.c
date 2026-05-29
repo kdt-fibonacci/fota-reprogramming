@@ -157,6 +157,11 @@ static Std_ReturnType Dcm_HandleActivateImageRoutine(
     PduLengthType RequestLength
 );
 
+static Std_ReturnType Dcm_HandleRollbackImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
+);
+
 /*********************************************************************************************************************/
 /*------------------------------------------------Public Functions---------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -560,6 +565,13 @@ static void Dcm_HandleEcuReset(
         Dcm_Runtime.FotaReportPending = TRUE;
     }
 
+    else if (Dcm_Runtime.FotaState == DCM_FOTA_STATE_ROLLBACK_PENDING)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_ROLLBACK_DONE;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_ROLLBACK_DONE;
+        Dcm_Runtime.FotaReportPending = TRUE;
+    }
+
     ResponsePayload[0] = ResetType;
 
     Dcm_SendPositiveResponse(
@@ -910,13 +922,16 @@ static void Dcm_HandleRoutineControl(
             break;
         }
 
+        
         case DCM_RID_ROLLBACK_IMAGE:
         {
-            Dcm_Runtime.FotaState = DCM_FOTA_STATE_ROLLBACK_DONE;
-            Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_ROLLBACK_DONE;
-
-            Dcm_Runtime.FotaReportPending = TRUE;
-            Dcm_Runtime.FotaIdleTransitionPending = FALSE;
+            if (Dcm_HandleRollbackImageRoutine(
+                    RequestDataPtr,
+                    RequestLength
+                ) != E_OK)
+            {
+                return;
+            }
 
             break;
         }
@@ -1252,6 +1267,93 @@ static Std_ReturnType Dcm_HandleActivateImageRoutine(
     }
 
     Dcm_Runtime.FotaState = DCM_FOTA_STATE_ACTIVATION_PENDING;
+
+    return E_OK;
+}
+
+
+static Std_ReturnType Dcm_HandleRollbackImageRoutine(
+    const uint8* RequestDataPtr,
+    PduLengthType RequestLength
+)
+{
+    (void)RequestDataPtr;
+
+    /*
+     * Expected request:
+     * [0] 0x31
+     * [1] 0x01
+     * [2] 0xFF
+     * [3] 0x03
+     *
+     * Recommended sequence:
+     *   10 03
+     *   31 01 FF 03
+     *   11 01
+     */
+
+    if (RequestLength != 4U)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_INCORRECT_MESSAGE_LENGTH
+        );
+        return E_NOT_OK;
+    }
+
+    /*
+     * Manual rollback은 새 image가 부팅된 뒤 tester가 요청하는 흐름.
+     * 따라서 Programming Session까지 요구하지 않고 Extended Session에서 허용한다.
+     */
+    if (Dcm_Runtime.CurrentSession != DCM_SESSION_EXTENDED)
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_CONDITIONS_NOT_CORRECT
+        );
+        return E_NOT_OK;
+    }
+
+    /*
+     * Download / transfer / verify / activation 도중 rollback을 허용하면
+     * FOTA 상태 흐름이 꼬일 수 있으므로, 안정 상태에서만 허용한다.
+     */
+    if ((Dcm_Runtime.FotaState != DCM_FOTA_STATE_IDLE) &&
+        (Dcm_Runtime.FotaState != DCM_FOTA_STATE_EXTENDED_SESSION) &&
+        (Dcm_Runtime.FotaState != DCM_FOTA_STATE_ROLLBACK_DONE))
+    {
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_REQUEST_SEQUENCE_ERROR
+        );
+        return E_NOT_OK;
+    }
+
+    /*
+     * 핵심:
+     * 여기서 실제 rollback을 위한 swap entry / boot flag를 변경한다.
+     */
+    if (FOTA_RollbackImage() != E_OK)
+    {
+        Dcm_Runtime.FotaState = DCM_FOTA_STATE_FAILED;
+        Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_FAILED;
+
+        Dcm_SendNegativeResponse(
+            DCM_SID_ROUTINE_CONTROL,
+            DCM_NRC_GENERAL_PROGRAMMING_FAILURE
+        );
+        return E_NOT_OK;
+    }
+
+    /*
+     * 아직 reset 전이므로 DONE보다 PENDING이 의미상 맞다.
+     * 실제 이전 bank로 돌아가는 동작은 이후 11 01 reset 후 SSW가 수행한다.
+     */
+    Dcm_Runtime.FotaState = DCM_FOTA_STATE_ROLLBACK_PENDING;
+    Dcm_Runtime.LastFotaResult = DCM_FOTA_RESULT_ROLLBACK_DONE;
+
+    Dcm_Runtime.FotaReportPending = FALSE;
+    Dcm_Runtime.FotaIdleTransitionPending = FALSE;
 
     return E_OK;
 }
