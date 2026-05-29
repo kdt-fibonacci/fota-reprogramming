@@ -38,9 +38,9 @@ struct EcuVersion {
 };
 
 const std::string VERSION_FILE = "./ecu_versions.json";
-const std::string CHECK_URL = "http://192.168.202.106:4321/ota/check";
-const std::string REPORT_URL = "http://192.168.202.106:4321/ota/report";
-const std::string MQTT_ADDRESS = "tcp://192.168.202.106:1883";
+const std::string CHECK_URL = "http://192.168.203.16:4321/ota/check";
+const std::string REPORT_URL = "http://192.168.203.16:4321/ota/report";
+const std::string MQTT_ADDRESS = "tcp://192.168.203.16:1883";
 const std::string CLIENT_ID = "RPi_OTA_Client";
 const std::string TOPIC = "ota/update";
 const std::string DEVICE_ID = "0001";
@@ -236,7 +236,6 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
 
     // 외부 보안 검증 모듈이 이제 .hex 대신 생성된 .bin을 타겟으로 검증을 매칭합니다.
     if (!verifyFirmwareSecurity(addr, ver, LOCAL_PUBLIC_KEY_PATH)) {
-        current_state = REPORTING;
         reportStatusToServer(addr, ver, "AUTH_FAILED");
         return;
     }
@@ -250,8 +249,6 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     // startOtaTransfer 내부에서 주소 정보 조립 루프 없이 지정 .bin 파일을 다이렉트로 DoIP 스트리밍 송출합니다.
     int result = startOtaTransfer(addr, ver, GATEWAY_IP);
 
-    // State 11: REPORTING
-    current_state = REPORTING;
     if (result == 0) {
         std::cout << "✅ [Success] Update sequence finished!" << std::endl;
         reportStatusToServer(addr, ver, "SUCCESS");
