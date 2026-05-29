@@ -44,6 +44,7 @@ typedef enum
     FOTA_HANDLER_STATE_TRANSFERRING,
     FOTA_HANDLER_STATE_VERIFIED,
     FOTA_HANDLER_STATE_ACTIVATION_ARMED,
+    FOTA_HANDLER_STATE_ROLLBACK_ARMED,
     FOTA_HANDLER_STATE_ERROR
 } FotaHandlerStateType;
 
@@ -57,6 +58,7 @@ typedef enum
     FOTA_HANDLER_RESULT_UPDATE_FAILED,
     FOTA_HANDLER_RESULT_VERIFY_FAILED,
     FOTA_HANDLER_RESULT_ACTIVATION_FAILED,
+    FOTA_HANDLER_RESULT_ROLLBACK_FAILED,
     FOTA_HANDLER_RESULT_PROVISION_FAILED
 } FotaHandlerResultType;
 
@@ -137,6 +139,7 @@ Std_ReturnType FOTA_VerifyImage(uint32 expectedCrc);
  * This only arms the next UCB_SWAP entry. It does not reset the ECU.
  */
 Std_ReturnType FOTA_ActivateImage(void);
+Std_ReturnType FOTA_RollbackImage(void);
 
 /* Optional diagnostics. */
 FotaHandlerStateType FOTA_GetHandlerState(void);
