@@ -37,6 +37,7 @@ typedef struct
     uint8 downloadStarted;
     uint8 verified;
     uint8 activationArmed;
+    uint8 rollbackArmed;
 
     SotaUpdateResult_t lastUpdateResult;
     SotaProvision_Result lastProvisionResult;
@@ -278,6 +279,7 @@ Std_ReturnType FOTA_StartDownload(uint32 imageLength)
     g_fotaHandlerContext.downloadStarted = 1U;
     g_fotaHandlerContext.verified = 0U;
     g_fotaHandlerContext.activationArmed = 0U;
+    g_fotaHandlerContext.rollbackArmed = 0U;
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_DOWNLOAD_STARTED;
     g_fotaHandlerContext.lastHandlerResult = FOTA_HANDLER_RESULT_OK;
 
@@ -593,6 +595,51 @@ Std_ReturnType FOTA_ActivateImage(void)
     g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ACTIVATION_ARMED;
 
     FOTA_DEBUG_PRINTF("[FOTA][ACTIVATE] Armed\r\n");
+    return E_OK;
+}
+
+Std_ReturnType FOTA_RollbackImage(void)
+{
+    SotaProvision_Result result;
+    uint32 entryIndex;
+    uint32 targetModeWord;
+
+    entryIndex = 0xFFFFFFFFu;
+    targetModeWord = 0U;
+
+    /*
+     * Manual rollback is implemented by appending the next UCB_SWAP entry.
+     *
+     * If the current image is the newly activated image, the next entry points
+     * back to the previous physical bank.
+     *
+     * This function does not erase/program inactive PFLASH.
+     * This function does not reset the ECU.
+     */
+    FOTA_DEBUG_PRINTF("[FOTA][ROLLBACK] Program next swap entry\r\n");
+
+    result = SotaProvision_ProgramNextSwapEntry(&entryIndex, &targetModeWord);
+
+    g_fotaHandlerContext.lastSwapEntryIndex = entryIndex;
+    g_fotaHandlerContext.lastSwapTargetModeWord = targetModeWord;
+
+    FOTA_DEBUG_PRINTF(
+        "[FOTA][ROLLBACK] Result=%u Entry=%lu TargetMode=0x%08lX\r\n",
+        (unsigned int)result,
+        (unsigned long)entryIndex,
+        (unsigned long)targetModeWord
+    );
+
+    if (FOTA_MapProvisionResult(result, FOTA_HANDLER_RESULT_ROLLBACK_FAILED) != E_OK)
+    {
+        return E_NOT_OK;
+    }
+
+    g_fotaHandlerContext.rollbackArmed = 1U;
+    g_fotaHandlerContext.handlerState = FOTA_HANDLER_STATE_ROLLBACK_ARMED;
+
+    FOTA_DEBUG_PRINTF("[FOTA][ROLLBACK] Armed\r\n");
+
     return E_OK;
 }
 
