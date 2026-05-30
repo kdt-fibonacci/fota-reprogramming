@@ -1,0 +1,74 @@
+/*********************************************************************************************************************/
+/*-----------------------------------------------------Includes------------------------------------------------------*/
+/*********************************************************************************************************************/
+
+#include "Can_Cfg.h"
+
+/*********************************************************************************************************************/
+/*------------------------------------------------Controller Configs------------------------------------------------*/
+/*********************************************************************************************************************/
+
+const Can_ControllerConfigType Can_ControllerConfig[CAN_CONTROLLER_COUNT] =
+{
+    {
+        .CanControllerId = CAN_CONTROLLER_0,
+        .CanNodeId       = 0U,
+        .CanFdEnabled    = TRUE
+    }
+};
+
+/*********************************************************************************************************************/
+/*---------------------------------------------Hardware Object Configs----------------------------------------------*/
+/*********************************************************************************************************************/
+
+const Can_HardwareObjectConfigType Can_HardwareObjectConfig[CAN_HOH_COUNT] =
+{
+    {
+        .CanObjectId            = CAN_HOH_LOCAL_TO_REMOTE_TX,
+        .CanObjectType          = CAN_OBJECT_TYPE_TRANSMIT,
+        .CanControllerId        = CAN_CONTROLLER_0,
+        .CanObjectPayloadLength = CAN_MAX_DATA_PAYLOAD,
+
+        .ObjectConfig =
+        {
+            .Tx =
+            {
+                .CanTxBufferIndex = 0U
+            }
+        }
+    },
+
+    {
+        .CanObjectId            = CAN_HOH_MOTION_TO_GATEWAY_RX,
+        .CanObjectType          = CAN_OBJECT_TYPE_RECEIVE,
+        .CanControllerId        = CAN_CONTROLLER_0,
+        .CanObjectPayloadLength = CAN_MAX_DATA_PAYLOAD,
+
+        .ObjectConfig =
+        {   .Rx =
+            {
+                .CanRxDestination = CAN_RX_DEST_FIFO0,
+                .CanFilterIndex   = 0U,
+                .CanFilterId1     = CAN_ID_GATEWAY_MOTION,
+                .CanFilterId2     = CAN_ID_GATEWAY_MOTION
+            }
+        }
+    },
+
+    {
+        .CanObjectId            = CAN_HOH_LIGHTING_TO_GATEWAY_RX,
+        .CanObjectType          = CAN_OBJECT_TYPE_RECEIVE,
+        .CanControllerId        = CAN_CONTROLLER_0,
+        .CanObjectPayloadLength = CAN_MAX_DATA_PAYLOAD,
+
+        .ObjectConfig =
+        {   .Rx =
+            {
+                .CanRxDestination = CAN_RX_DEST_FIFO0,
+                .CanFilterIndex   = 1U,
+                .CanFilterId1     = CAN_ID_GATEWAY_LIGHTING,
+                .CanFilterId2     = CAN_ID_GATEWAY_LIGHTING
+            }
+        }
+    }
+};
