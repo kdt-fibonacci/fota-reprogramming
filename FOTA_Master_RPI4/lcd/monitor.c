@@ -211,7 +211,7 @@ void enter_button_interrupt()
             isRecoveryGo = false;
         }
 
-        current_state = WAIT;
+        current_state = REPORTING;
 
         current_menu = MENU_YES;
     }
