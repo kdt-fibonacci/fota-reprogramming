@@ -14,6 +14,7 @@ typedef enum
     WAIT_ACTIVATION,
     ACTIVATION,
     RECOVERY,
+    REPORTING
 } STATE;
 
 
