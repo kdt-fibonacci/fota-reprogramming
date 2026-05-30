@@ -30,8 +30,6 @@ extern char update_ecu_version[16];
 
 extern std::queue<UpdateItem> update_queue;
 
-extern bool isRecoveryGo;
-
 struct EcuVersion {
     std::string address;
     std::string version;
@@ -236,6 +234,7 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
 
     // 외부 보안 검증 모듈이 이제 .hex 대신 생성된 .bin을 타겟으로 검증을 매칭합니다.
     if (!verifyFirmwareSecurity(addr, ver, LOCAL_PUBLIC_KEY_PATH)) {
+        current_state = REPORTING;
         reportStatusToServer(addr, ver, "AUTH_FAILED");
         return;
     }
@@ -249,6 +248,8 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
     // startOtaTransfer 내부에서 주소 정보 조립 루프 없이 지정 .bin 파일을 다이렉트로 DoIP 스트리밍 송출합니다.
     int result = startOtaTransfer(addr, ver, GATEWAY_IP);
 
+    // State 11: REPORTING
+    current_state = REPORTING;
     if (result == 0) {
         std::cout << "✅ [Success] Update sequence finished!" << std::endl;
         reportStatusToServer(addr, ver, "SUCCESS");
@@ -257,20 +258,6 @@ void executeUpdate(const std::string& addr, const std::string& ver, const std::s
         std::string nrc_hex = toHexStr(result);
         std::cerr << "❌ [Error] Failed with NRC: " << nrc_hex << std::endl;
         reportStatusToServer(addr, ver, "FAILED", nrc_hex);
-
-        current_state = RECOVERY;
-
-        while (current_state == RECOVERY)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        if (isRecoveryGo == true)
-        {
-            std::cout << "♻️ Rollback 시작" << std::endl;
-
-            // rollback 함수 호출
-        }
     }
 
     std::cout << "----------------------------------------" << std::endl;
