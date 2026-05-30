@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OTA Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- NAVBAR -->
+<div class="navbar">
+    <div>
+        <div class="title">OTA Management Dashboard</div>
+        <div class="subtitle">Firmware Over-The-Air Control System</div>
+    </div>
+    <div class="nav-status">
+        <div class="status-dot"></div>
+        System Online
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- SIDE BY SIDE GRID -->
+    <div class="dashboard-grid">
+
+        <!-- ECU STATUS -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">ECU Status</div>
+                {% if ecus %}
+                <div class="card-meta">{{ ecus|length }} unit{% if ecus|length != 1 %}s{% endif %}</div>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Address</th>
+                            <th>ECU</th>
+                            <th>Version</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ecu in ecus %}
+                        <tr>
+                            <td class="addr">{{ ecu.address }}</td>
+                            <td>{{ ecu.name }}</td>
+                            <td><span class="badge">v{{ ecu.version }}</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <a class="button button-upload" href="/upload">↑ Upload Firmware</a>
+            </div>
+        </div>
+
+        <!-- OTA LOGS -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">OTA Logs</div>
+                <div class="card-meta" id="log-meta">Live · 1s</div>
+            </div>
+            <div class="card-body">
+                <div class="log-box" id="log-box"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">OTA Embedded Project Dashboard</div>
+</div>
+
+<script>
+async function fetchLogs() {
+    try {
+        const res  = await fetch("/api/logs");
+        const data = await res.json();
+        const logBox = document.getElementById("log-box");
+
+        logBox.innerHTML = "";
+        data.logs.forEach(log => {
+            const s = (log.status || "").toLowerCase();
+            const cls = s.includes("success") ? "success"
+                      : s.includes("fail")    ? "failed"
+                      : s.includes("upload")  ? "upload"
+                      : "default";
+            const errHtml = log.error_code
+                ? `<span class="log-error">${log.error_code}</span>` : "";
+
+            logBox.innerHTML += `
+                <div class="log-line">
+                    <span class="log-time">${log.time}</span>
+                    <span class="log-status ${cls}">${log.status}</span>
+                    <span class="log-addr">${log.ecu_address}</span>
+                    <span class="log-arrow">→</span>
+                    <span class="log-ver">v${log.version}</span>
+                    ${errHtml}
+                </div>`;
+        });
+
+        const meta = document.getElementById("log-meta");
+        if (meta) meta.textContent = `${data.logs.length} entries · Live`;
+
+    } catch (e) { console.error("LOG FETCH ERROR", e); }
+}
+
+fetchLogs();
+setInterval(fetchLogs, 1000);
+</script>
+
+</body>
+</html>
