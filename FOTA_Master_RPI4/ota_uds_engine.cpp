@@ -14,6 +14,7 @@
 
 extern STATE current_state;
 extern int current_install_progress;
+extern bool isRecoveryGo;
 
 const int DOIP_PORT = 13400;
 const uint16_t RPI_SA = 0x0E00; 
@@ -206,6 +207,20 @@ int requestEcuReset(int sock, uint16_t targetAddr) {
     return checkUdsResponse(res, len, 0x51); // 0x51: Positive SID (0x11 + 0x40)
 }
 
+int requestRollback(int sock, uint16_t targetAddr) {
+    std::cout << "\n[UDS] Emergency Rollback Phase. Sending Rollback Reservation (0x31 01 FF 03)..." << std::endl;
+    
+    // Routine Control (0x31) 페이로드 구성: [startRoutine(0x01)] + [RoutineID High(0xFF)] + [RoutineID Low(0x03)]
+    std::vector<uint8_t> p = { 0x01, 0xFF, 0x03 }; 
+    sendUdsPacket(sock, targetAddr, 0x31, p);
+    
+    uint8_t res[64];
+    int len = recv_with_retry(sock, res, sizeof(res));
+    
+    // 정상 Positive Response SID는 0x31 + 0x40 = 0x71 번으로 들어와야 합니다.
+    return checkUdsResponse(res, len, 0x71); 
+}
+
 // ota_comm.cpp 사양에 맞춰 억지 HEX 라인 파싱을 걷어내고, .bin 순수 바이너리 스트리밍 방식으로 완벽 통합
 int startOtaTransfer(const std::string& targetAddrStr, const std::string& version, const std::string& gatewayIp) {
     uint16_t targetAddr = (uint16_t)std::stoul(targetAddrStr, nullptr, 16);
@@ -270,7 +285,7 @@ int startOtaTransfer(const std::string& targetAddrStr, const std::string& versio
         
         std::cout << "[UDS] Sending 0x36 block sn: 0x" << std::hex << (int)sn 
                   << " | Offset: " << std::dec << offset << "/" << binaryData.size() << std::endl;
-        current_install_progress = (offset / binaryData.size()) * 100;
+        current_install_progress = (offset * 100) / binaryData.size();
         sendUdsPacket(sock, targetAddr, 0x36, udsPayload);
         
         uint8_t res_buf[1500];
@@ -336,9 +351,47 @@ int startOtaTransfer(const std::string& targetAddrStr, const std::string& versio
     int swapResult = requestBankSwap(sock, targetAddr);
 
     if (swapResult != 0) {
-        current_state = RECOVERY;
-        std::cerr << "⚠️ [RECOVERY] Critical error during bank swap. Rolled back to stable bank." << std::endl;
-        close(sock); return swapResult;
+        std::cerr << "⚠️ [RECOVERY] Critical error during bank swap. Waiting for user decision..." << std::endl;
+        
+        // 사용자가 LCD 상에서 스위치(버튼 인터럽트)로 복구할지 선택할 수 있도록 유도
+        current_state = RECOVERY; 
+
+        // 사용자가 결정을 내릴 때까지 무한 루프 블로킹 (UI 스레드와 동기화 대기)
+        while (current_state == RECOVERY) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // 사용자가 ENTER 버튼 인터럽트 레이어에서 'isRecoveryGo = true'로 설정하고 넘어왔을 경우
+        if (isRecoveryGo) {
+            std::cout << "♻️ [ROLLBACK START] User agreed. Executing UDS Rollback Sequence..." << std::endl;
+
+            // 1단계: RoutineControl Rollback 명령어 전송 (0x31 01 FF 03)
+            int rollbackNrc = requestRollback(sock, targetAddr);
+            if (rollbackNrc != 0) {
+                std::cerr << "❌ [CRITICAL] ECU rejected Rollback Command! NRC: 0x" 
+                          << std::hex << rollbackNrc << std::dec << std::endl;
+            } else {
+                std::cout << "✅ [UDS] Rollback configuration registered in target ECU." << std::endl;
+            }
+
+            // 2단계: 롤백 스위칭 유효화 적용을 위한 하드 리셋(0x11 01) 연쇄 방출
+            int resetNrc = requestEcuReset(sock, targetAddr);
+            if (resetNrc != 0) {
+                std::cerr << "⚠️ [WARNING] ECU Reset after rollback failed. NRC: 0x" 
+                          << std::hex << resetNrc << std::dec << std::endl;
+            } else {
+                std::cout << "🎉 [COMPLETED] Target ECU received Hard Reset and is rebooting to stable bank!" << std::endl;
+            }
+        } 
+        else {
+            // 사용자가 롤백을 취소(아니오)하고 불완전 펌웨어 영역에 그대로 놔두기를 선택했을 때
+            std::cout << "⚠️ [ROLLBACK CANCELED] User declined rollback. Leaving target as-is." << std::endl;
+        }
+
+        // 롤백 처리가 끝났거나 거부되었으므로 최종 결과를 백엔드 서버에 알리기 위해 REPORTING 상태로 밀어내며 종료
+        current_state = REPORTING; 
+        close(sock); 
+        return swapResult;
     }
 
     std::cout << "🚀 [SUCCESS] Bank swap command accepted. Target ECU is rebooting with new firmware..." << std::endl;
@@ -347,10 +400,51 @@ int startOtaTransfer(const std::string& targetAddrStr, const std::string& versio
     if (resetResult != 0) {
         std::cerr << "⚠️ [WARNING] Bank swap succeeded, but ECU Reset command was rejected. Code: 0x" 
                   << std::hex << resetResult << std::dec << std::endl;
-        close(sock); return resetResult;
+    } else {
+        std::cout << "🎉 [COMPLETED] Target ECU received Hard Reset and is rebooting with new firmware!" << std::endl;
     }
 
-    std::cout << "🎉 [COMPLETED] Target ECU received Hard Reset and is rebooting with new firmware!" << std::endl;
+    // =========================================================================
+    // ♻️ [롤백 스위치 대기 및 사출 선택 국면]
+    // =========================================================================
+    std::cout << "\n🎛️ [DEMO CHECK] 최종 롤백 시연을 위한 사용자 스위치 대기 모드로 진입합니다." << std::endl;
+    
+    current_state = RECOVERY; // LCD 화면을 복구 질의 창으로 임시 격하 전이
+    isRecoveryGo = false;     // 플래그 초기화
+
+    // 💡 버튼 인터럽트가 current_state를 REPORTING으로 바꿀 때까지 300ms usleep 동기화 대기
+    // (이제 UI가 가비지 상태로 얼어붙거나 스위치가 안 먹는 먹통 현상이 완벽히 해결됩니다)
+    while (current_state == RECOVERY) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    // 대기 루프가 풀린 시점(current_state == REPORTING)에서 유저의 최종 버튼 판별
+    if (isRecoveryGo == true) {
+        std::cout << "♻️ [ROLLBACK START] 유저가 오리지널 파티션 복구(0x31 01 FF 03)를 확정했습니다!" << std::endl;
+
+        if ((nrc = changeDiagnosticSession(sock, targetAddr, 0x03)) != 0) {
+        std::cerr << "[ERROR] Failed to enter Extended Session (0x03)" << std::endl;
+        close(sock); return nrc;
+        }
+        
+        // 1단계: RoutineControl Rollback 명령어 전송 (0x31 01 FF 03)
+        int rollbackNrc = requestRollback(sock, targetAddr);
+        if (rollbackNrc != 0) {
+            std::cerr << "❌ [UDS ERROR] 제어기가 롤백 명령을 거부했습니다. NRC: 0x" << std::hex << rollbackNrc << std::dec << std::endl;
+        } else {
+            std::cout << "✅ [UDS] 타겟 제어기 롤백 예약 마킹 안착 성공." << std::endl;
+        }
+
+        // 2단계: 롤백 스위칭 유효화 적용을 위한 하드 리셋(0x11 01) 강제 트리거
+        requestEcuReset(sock, targetAddr);
+        std::cout << "🎉 [COMPLETED] 복구 하드 리셋 완료. 안정 원본 뱅크로 재부팅합니다." << std::endl;
+    } 
+    else {
+        std::cout << "▶️ [COMMIT EXP] 유저가 롤백을 취소하고 신규 펌웨어 가동을 최종 락인했습니다." << std::endl;
+    }
+
+    // 💡 모든 하드웨어 통신과 스위치 판단 루틴이 끝났으므로 최종 상태 REPORTING 유지 상태로 클린업 이탈
+    current_state = REPORTING; 
     close(sock);
     return 0;
 }
