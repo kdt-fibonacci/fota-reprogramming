@@ -12,6 +12,6 @@
 #define DEBUG_DCM_ENABLE          (0U)
 #define DEBUG_DOIP_ENABLE         (0U)
 #define DEBUG_SOAD_ENABLE         (0U)
-#define DEBUG_FOTA_ENABLE         (1U)
+#define DEBUG_FOTA_ENABLE         (0U)
 
 #endif /* DEBUG_CFG_H_ */

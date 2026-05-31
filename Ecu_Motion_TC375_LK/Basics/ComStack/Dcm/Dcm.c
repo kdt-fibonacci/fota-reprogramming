@@ -11,6 +11,7 @@
 
 #include "FotaHandler.h"
 
+#include "Time.h"
 #include <string.h>
 
 /*********************************************************************************************************************/
@@ -579,6 +580,8 @@ static void Dcm_HandleEcuReset(
         ResponsePayload,
         1U
     );
+
+    Shared_Util_Time_DelayMs(1000);
 
     FOTA_PerformSystemReset();
 }

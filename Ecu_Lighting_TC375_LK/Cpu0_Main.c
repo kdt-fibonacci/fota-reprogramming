@@ -6,25 +6,24 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "Ifx_Types.h"
 #include "IfxCpu.h"
 #include "IfxScuWdt.h"
 
 #include "Std_Types.h"
 #include "ComStack_Types.h"
 
-#include "UART.h"
-
+#include "App_Scheduler.h"
 #include "Can.h"
 #include "CanIf.h"
 #include "CanTp.h"
 #include "PduR.h"
 #include "Dcm.h"
-
 #include "FotaHandler.h"
+#include "Can_Cfg.h"
+
+#include "UART.h"
 
 #include "Time.h"
-#include "Can_Cfg.h"
 
 /*********************************************************************************************************************/
 /*------------------------------------------------------Macros-------------------------------------------------------*/
@@ -37,7 +36,6 @@
 /*********************************************************************************************************************/
 
 static void Test_InitModules(void);
-static void Test_MainFunctions(void);
 
 /*********************************************************************************************************************/
 /*------------------------------------------------Main Function------------------------------------------------------*/
@@ -56,17 +54,17 @@ void core0_main(void)
     );
 
     Test_InitModules();
+    App_Scheduler_Init();
 
     UART_Printf("\r\n");
+    UART_Printf("[Lighting ECU] Current Version: A\r\n");
     UART_Printf("========================================\r\n");
     UART_Printf("[Lighting] Target DCM Responder Start\r\n");
     UART_Printf("========================================\r\n");
 
     while (1)
     {
-        Test_MainFunctions();
-
-        Shared_Util_Time_DelayMs(1);
+        App_Scheduler_Run();
     }
 }
 
@@ -77,7 +75,6 @@ void core0_main(void)
 static void Test_InitModules(void)
 {
     UART_Init();
-
     Can_Init();
 
     (void)Can_SetControllerMode(
@@ -90,25 +87,4 @@ static void Test_InitModules(void)
     PduR_Init();
     Dcm_Init();
     FOTA_ProvisionInitialOnce();
-}
-
-static void Test_MainFunctions(void)
-{
-    /*
-     * 순서는 크게 아래 흐름이면 된다.
-     *
-     * 1. CAN Rx frame 처리
-     * 2. CanTp 재조립/송신 상태머신 처리
-     * 3. DCM pending request 처리
-     * 4. CAN Tx pending frame 처리
-     */
-    Can_MainFunction_Read();
-
-    CanTp_MainFunction();
-
-    Dcm_MainFunction();
-
-    Can_MainFunction_Write();
-
-    FOTAHandlerMain();
 }

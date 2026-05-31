@@ -45,4 +45,9 @@
 !/Ecu_Gateway_TC375_LK/Utils/
 !/Ecu_Gateway_TC375_LK/Utils/**
 
+!/docs/
+!/docs/*
+!/docs/diagrams/
+!/docs/diagrams/*
+
 !.gitignore
