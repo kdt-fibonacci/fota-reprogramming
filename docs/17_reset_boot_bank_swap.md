@@ -59,12 +59,15 @@ sequenceDiagram
     SW->>SW: targetWord = 반대 모드 (STANDARD↔ALTERNATE)
     SW->>SW: ORIG/COPY 다음 free entry에 targetWord 기록 + verify
     Note over FH: jump/reset 하지 않음 (arm만)
-    DC->>FH: 0x11 01 → FOTA_PerformSystemReset
+    DC->>DC: 0x11 01 → 0x51 응답 송신 → Shared_Util_Time_DelayMs(1000)
+    DC->>FH: FOTA_PerformSystemReset
     FH->>SSW: IfxScuRcu_performReset(system)
     SSW->>SSW: UCB_SWAP 평가 → ADDRCFG 갱신 → 새 active bank 부팅
 ```
 
-근거: `SotaProvision_ProgramNextSwapEntry()` in `Sota_SwapDiag.c`; `FOTA_ActivateImage()`, `FOTA_PerformSystemReset()` in `FotaHandler.c`.
+근거: `SotaProvision_ProgramNextSwapEntry()` in `Sota_SwapDiag.c`; `FOTA_ActivateImage()`, `FOTA_PerformSystemReset()` in `FotaHandler.c`; `Dcm_HandleEcuReset()`의 `Shared_Util_Time_DelayMs(1000)` in `Dcm.c`.
+
+> **변경**: 0x11 처리에서 positive 응답 송신과 `FOTA_PerformSystemReset()` 사이에 `Shared_Util_Time_DelayMs(1000)`가 추가되었다. 응답이 tester(Master)까지 도달할 시간을 확보하려는 의도로 보이며, reset이 응답보다 빨라 Master가 응답을 못 받던 문제(이전 코드)의 완화책이다. blocking delay가 실제 송출을 보장하는지는 delay/UART/CanTp 구현에 의존 `확인 필요`. 이 reset 자체는 여전히 **system reset(Application Reset)**이며 CAN register의 application reset value와는 무관하다.
 
 ## 7. reset 전 저장 / reset 후 유지
 

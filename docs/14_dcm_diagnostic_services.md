@@ -25,7 +25,7 @@ Dcm Rx/Tx 경로, service dispatch, 세션 상태, RequestDownload/TransferData/
 | SID | Service | Handler | Preconditions | Positive Response | NRC / Error | Evidence |
 |---|---|---|---|---|---|---|
 | 0x10 | DiagnosticSessionControl | `Dcm_HandleDiagnosticSessionControl` | Programming(0x02)은 VERIFIED 이후 | `0x50 sess P2..` | 0x13 길이, 0x12 subfn, 0x22 조건 | `Dcm.c` |
-| 0x11 | ECUReset | `Dcm_HandleEcuReset` | subfn=0x01 hardReset만 | `0x51 0x01` | 0x13, 0x12 | reset 전 응답 후 `FOTA_PerformSystemReset()` |
+| 0x11 | ECUReset | `Dcm_HandleEcuReset` | subfn=0x01 hardReset만 | `0x51 0x01` | 0x13, 0x12 | 응답 송신 후 `Shared_Util_Time_DelayMs(1000)` → `FOTA_PerformSystemReset()` (응답 flush 시간 확보) |
 | 0x22 | ReadDataByIdentifier | `Dcm_HandleReadDataByIdentifier` | DID=0xF180 | `0x62 F1 80 [State][Result]` | 0x13, 0x31 | FOTA 상태 보고 |
 | 0x31 | RoutineControl | `Dcm_HandleRoutineControl` | startRoutine(0x01) | `0x71 01 [RID]` | 0x13,0x12,0x31 | RID FF01/FF02/FF03 |
 | 0x34 | RequestDownload | `Dcm_HandleRequestDownload` | EXTENDED 세션 + 다운로드 시작 상태 | `0x74 0x30 [maxBlock(3)]` | 0x13,0x22,0x24,0x31 | 11바이트 고정 |
@@ -124,8 +124,13 @@ sequenceDiagram
     T->>DC: 0x10 02 → 0x31 01 FF02
     DC->>FH: FOTA_ActivateImage() → SotaProvision_ProgramNextSwapEntry
     DC-->>T: 0x71 01 FF02
-    T->>DC: 0x11 01 → FOTA_PerformSystemReset
+    T->>DC: 0x11 01
+    DC-->>T: 0x51 01 (positive)
+    DC->>DC: Shared_Util_Time_DelayMs(1000) (응답 flush 대기)
+    DC->>FH: FOTA_PerformSystemReset
 ```
+
+> **변경**: `Dcm_HandleEcuReset()`는 positive 응답 송신 후 `Shared_Util_Time_DelayMs(1000)`를 두고 reset한다. 이는 CanTp/CAN으로 `0x51` 응답이 실제 송출될 시간을 확보하기 위한 것으로 보인다(이전에는 응답 직후 즉시 reset → Master가 응답을 못 받을 위험이 있었음). 근거: `Dcm_HandleEcuReset()` diff in `Dcm.c`(both Motion/Lighting).
 
 ## 10. Dcm 응답 흐름
 
@@ -179,6 +184,15 @@ flowchart LR
 - RequestDownload는 `dataFormat=0x00`, `addrLenFormat=0x44` 고정 검사. memoryAddress(`[3..6]`)는 파싱하지만 FOTA에 전달하지 않음 `추정`.
 - `0x10 02`(Programming) 진입 조건은 VERIFIED 또는 이미 PROGRAMMING_SESSION. Master가 "safe-state"로 사용하는 의미와 코드 조건이 다름 `확인 필요`.
 - ACTIVATED→IDLE 전이는 0x22 F180 조회 후 다음 TxConfirmation에서 발생 → reset 전에 이 전이가 실제 일어나는지 타이밍 `확인 필요`.
+- `Shared_Util_Time_DelayMs(1000)` 동안 main loop가 blocking되므로 CanTp/CAN Tx가 그 사이 진행되려면 송신이 이미 완료되었거나 인터럽트 기반이어야 함 → 이 1000ms 지연이 실제로 응답 송출을 보장하는지(blocking delay 구현 방식 의존) `확인 필요`.
+
+## 최근 코드 변경 반영 사항
+
+| 변경 영역 | 반영 내용 | 코드 근거 |
+|---|---|---|
+| 0x11 ECUReset | positive 응답 후 `Shared_Util_Time_DelayMs(1000)` 추가 후 reset | `Dcm_HandleEcuReset()` diff in `Dcm.c` |
+| 의존성 | `Dcm.c`가 `Time.h` include 추가 | `#include "Time.h"` diff |
+| 적용 범위 | Motion/Lighting `Dcm.c` 동일 변경 | 두 ECU diff 동일 |
 
 ## 다음에 읽을 문서
 
