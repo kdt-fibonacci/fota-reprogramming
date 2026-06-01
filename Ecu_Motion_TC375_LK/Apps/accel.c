@@ -40,19 +40,18 @@ void setThrottle(void)
   th = joyres > 0 ? joyres : -joyres;
   dir = joyres == 0 ? 0 : (joyres > 0 ? 1 : 2);
 
-#define TCS_ENABLE
-#ifdef TCS_ENABLE
+#ifdef ENABLE_TCS
   if (dir == 0)
     duty = 0.98f * duty;
   else if (dir == 1)
-    duty = 0.80f * duty + 100.0f * th;
+    duty = 0.96f * duty + 20.0f * th;
   else
     duty = 0.90f * duty - 50.0f * th;
 #else
   if (dir == 0)
     duty = 0.99f * duty;
   else if (dir == 1)
-    duty = 0.10f * duty + 450.0f * th;
+    duty = 0.05f * duty + 475.0f * th;
   else
     duty = 0.90f * duty - 50.0f * th;
 #endif
@@ -62,7 +61,7 @@ void setThrottle(void)
   duty2 = duty;
   speed = duty2;
 
-#ifdef TCS_ENABLE
+#ifdef ENABLE_TCS
   // if (duty2 > 25000 && get_motor_current_adc() < 200) duty2 = 25000;
 #endif
 

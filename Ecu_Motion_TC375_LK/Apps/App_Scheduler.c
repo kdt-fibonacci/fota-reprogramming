@@ -57,19 +57,19 @@ static void App_Scheduler_Run_1ms(void)
 
 static void App_Scheduler_Run_10ms(void)
 {
+    setThrottle();
+    if (isStopped())
+    {
+      IfxPort_setPinLow(&MODULE_P00, 5);
+    }
+    else
+    {
+      IfxPort_setPinHigh(&MODULE_P00, 5);
+    }
 }
 
 static void App_Scheduler_Run_100ms(void)
 {
-  setThrottle();
-  if (isStopped())
-  {
-    IfxPort_setPinLow(&MODULE_P00, 5);
-  }
-  else
-  {
-    IfxPort_setPinHigh(&MODULE_P00, 5);
-  }
 }
 
 static void App_Scheduler_Run_1s(void)
