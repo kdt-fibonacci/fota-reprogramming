@@ -1,3 +1,5 @@
+/* 추후 멀티 런타임을 위한 확장이 필요하다. */
+
 /*********************************************************************************************************************/
 /*-----------------------------------------------------Includes------------------------------------------------------*/
 /*********************************************************************************************************************/
@@ -20,8 +22,6 @@
 /*------------------------------------------------------Types--------------------------------------------------------*/
 /*********************************************************************************************************************/
 
-extern volatile boolean Test_DoIPResponseReceived;
-
 typedef enum
 {
     DOIP_STATE_INITIALIZED = 0U,
@@ -32,13 +32,15 @@ typedef struct
 {
     DoIP_StateType State;
 
+    uint8  DoConId; // TODO: 아직 이것과 관련한 확장이 진행되지 않음
+
     uint16 TesterLogicalAddress;
     uint16 EntityLogicalAddress;
 
-    uint8 RxBuffer[DOIP_RX_BUFFER_SIZE];
+    uint8  RxBuffer[DOIP_RX_BUFFER_SIZE];
     uint16 RxLength;
 
-    uint8 TxBuffer[DOIP_TX_BUFFER_SIZE];
+    uint8  TxBuffer[DOIP_TX_BUFFER_SIZE];
 } DoIP_RuntimeType;
 
 /*********************************************************************************************************************/
@@ -419,7 +421,7 @@ static void DoIP_HandleRoutingActivation(
 
     DoIP_Runtime.TesterLogicalAddress = DoIP_ParseUint16BigEndian(
         &PayloadPtr[0]
-    );
+    ); // Source Address
 
     DoIP_Runtime.State = DOIP_STATE_ROUTING_ACTIVE;
 
@@ -437,6 +439,16 @@ static void DoIP_HandleDiagnosticMessage(
     uint16 SourceAddress;
     uint16 TargetAddress;
     PduInfoType UdsPduInfo;
+
+    /*
+     * DoIP Diagnostic Message Header 구조:
+     *
+     * Byte 0~1 : DoIP Protocol Version
+     * Byte 2~3 : Inversion Version (Protocol Version을 bitwise-not 한 값으로, 무결성 검증을 위해 존재)
+     * Byte 4~7 : Payload Length
+     * 
+     * 이것들은 앞서 처리되어서 여기로 넘어옴
+     */
 
     /*
      * DoIP Diagnostic Message Payload 구조:
@@ -583,13 +595,6 @@ static Std_ReturnType DoIP_SendMessage(
         "[DoIP][TX] DoIP PDU",
         &SoAdPduInfo
     );
-
-#if (DEBUG_DOIP_ENABLE == 1U)
-    if (PayloadType == DOIP_PAYLOAD_TYPE_DIAG_MESSAGE)
-    {
-        Test_DoIPResponseReceived = TRUE;
-    }
-#endif
 
     return SoAd_Transmit(
         DoIP_Config.SoAdTxPduId,

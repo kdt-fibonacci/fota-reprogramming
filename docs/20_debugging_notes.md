@@ -59,7 +59,7 @@ flowchart TD
 ```
 
 - 권장: reset 전 blocking flush, panic 시 polling UART 사용 (일반 지침 `확인 필요` — 현재 코드의 UART 구현 방식 미확인).
-- `FOTA_PerformSystemReset()`은 응답 송신 후 즉시 reset하므로, reset 직전 디버그 로그가 잘릴 수 있음 `추정`.
+- **변경**: `Dcm_HandleEcuReset()`가 응답 송신 후 `Shared_Util_Time_DelayMs(1000)`를 두고 reset하도록 바뀌어, reset 직전 응답/로그 truncation 위험이 완화되었다. 다만 1000ms blocking delay 동안 UART TX가 인터럽트 기반이면 진행되지만 main loop는 멈추므로, delay 구현(busy/타이머)에 따라 효과가 달라짐 `확인 필요`. 근거: `Dcm_HandleEcuReset()` diff in `Dcm.c`.
 
 ## 7. CAN 레지스터 디버그
 
@@ -91,14 +91,16 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["0x11 01 수신"] --> B["positive 0x51 응답 송신"]
-    B --> C["FOTA_PerformSystemReset"]
+    B --> DLY["Shared_Util_Time_DelayMs(1000) (응답 flush 대기)"]
+    DLY --> C["FOTA_PerformSystemReset"]
     C --> D{"응답이 실제 전송됐는가?"}
-    D -- No --> E["reset가 응답보다 빨라 Master가 응답 못 받음 위험"]
+    D -- No --> E["reset가 응답보다 빨라 Master가 응답 못 받음 위험 (1000ms 지연으로 완화)"]
     D -- Yes --> F["Master가 0x51 수신 후 reboot 진행"]
-    C --> G["reset 후 PC/RSTSTAT/SWAPCTRL 확인"]
+    C --> G["reset 후 PC/RSTSTAT/SWAPCTRL + UART 'Current Version' 로그 확인"]
 ```
 
-- `Dcm_HandleEcuReset()`는 `Dcm_SendPositiveResponse()` **후** `FOTA_PerformSystemReset()`를 호출. 단, 응답이 CanTp/CAN으로 실제 송출되기 전에 reset되면 Master가 응답을 못 받을 수 있음 `확인 필요`.
+- `Dcm_HandleEcuReset()`는 `Dcm_SendPositiveResponse()` **후** `Shared_Util_Time_DelayMs(1000)`를 두고 `FOTA_PerformSystemReset()`를 호출(변경). reset 전 응답 송출 시간을 확보하지만, blocking delay가 송출 완료를 100% 보장하는지는 구현 의존 `확인 필요`.
+- reset 후 부팅 ECU가 UART로 `[Motion/Lighting ECU] Current Version: A`를 출력하므로, 어느 image가 부팅됐는지 로그로 1차 확인 가능(변경). 근거: `core0_main()` diff in `Cpu0_Main.c`.
 
 ## 9. FOTA 디버깅 체크포인트
 
@@ -125,12 +127,25 @@ flowchart TD
 
 - UART가 인터럽트 기반인지 polling인지 → 로그 truncation 분석에 필요 `확인 필요`.
 - CCCR read-back/clock-wait 시퀀스가 iLLD 내부에서 처리되는지 `확인 필요`.
-- 0x11 reset 시 응답 송출 완료 보장 메커니즘 `확인 필요`.
+- 0x11 reset 시 1000ms blocking delay가 응답 송출 완료를 보장하는지 `확인 필요`.
+- **변경**: Motion/Lighting은 STM compare interrupt(`STM_Int0Handler`, priority 0x30)가 scheduling flag를 세워야 main loop slot이 돈다. **STM 인터럽트가 막히면 통신/진단/FOTA 처리 전체가 멈춘다** → reset/halt 디버깅 시 STM 인터럽트 활성 여부 확인 필요 `확인 필요`. 근거: `App_Scheduler_Run()` in `Apps/App_Scheduler.c`, `STM_Int0Handler()` in `Basics/Common/Driver_Stm.c`.
+
+## 12. 최근 코드 변경 반영 사항
+
+| 변경 영역 | 반영 내용 | 코드 근거 |
+|---|---|---|
+| FOTA 디버그 로그 기본값 | Motion/Lighting `DEBUG_FOTA_ENABLE` `1U`→`0U` (기본 비활성) | `Utils/Debug_Cfg.h` diff |
+| reset 타이밍 | 응답 후 `Shared_Util_Time_DelayMs(1000)` 추가 | `Dcm_HandleEcuReset()` diff |
+| 부팅 버전 로그 | `Current Version: A` UART 출력 추가 | `core0_main()` diff |
+| 스케줄링 의존성 | main loop가 STM 인터럽트 flag에 의존(인터럽트 정지 시 전체 정지) | `App_Scheduler_Run()`, `STM_Int0Handler()` |
+
+> `DEBUG_FOTA_ENABLE=0`이므로 FOTA 단계별 디버그 로그는 기본적으로 출력되지 않는다. FOTA 디버깅 시 이 매크로를 다시 `1U`로 빌드해야 한다(소스 수정 필요 — 본 위키는 수정하지 않음).
 
 ## 다음에 읽을 문서
 
 - [Reset / Boot / Bank Swap](./17_reset_boot_bank_swap.md)
 - [Open Issues](./22_open_issues.md)
+- [Application Change Log](./23_application_change_log.md)
 
 ## 이 문서에서 남은 확인 필요 사항
 

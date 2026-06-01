@@ -20,11 +20,11 @@
 
 | 노드 | 역할 | 구현 언어/환경 |
 |---|---|---|
-| `FOTA_Linux_Server` | 이미지 보관/서명/배포, 업데이트 캠페인 알림 | C (libmicrohttpd, OpenSSL, MQTT) + Flask 대시보드 |
-| `FOTA_Master_RPI4` | DoIP Tester, 이미지 다운로드/검증, UDS 시퀀스 구동 | C++ (libcurl, paho-mqtt, OpenSSL) |
+| `FOTA_Linux_Server` | (차량 외부 백엔드) 이미지 보관/서명/배포, 업데이트 캠페인 알림 | C (libmicrohttpd, OpenSSL, MQTT) + Flask 대시보드 |
+| `FOTA_Master_RPI4` | **차량 내부 High Performance Computer(In-Vehicle HPC)** — DoIP Tester, 이미지 다운로드/검증, UDS 시퀀스 구동 | C++ (libcurl, paho-mqtt, OpenSSL) |
 | `Ecu_Gateway_TC375_LK` | DoIP ↔ CAN 게이트웨이 라우팅 | C (AUTOSAR-like ComStack, iLLD, LwIP) |
-| `Ecu_Motion_TC375_LK` | CAN Target ECU, FOTA 대상 | C (ComStack + Reprogram) |
-| `Ecu_Lighting_TC375_LK` | CAN Target ECU, FOTA 대상 | C (Motion과 동일 구조) |
+| `Ecu_Motion_TC375_LK` | CAN Target ECU, FOTA 대상 + motor 제어 application | C (ComStack + Reprogram + Apps) |
+| `Ecu_Lighting_TC375_LK` | CAN Target ECU, FOTA 대상 + lamp 제어 application | C (Motion과 통신/FOTA 코어 동일, application 상이) |
 
 근거:
 - 디렉터리: `git ls-files` 최상위 5개 시스템 폴더
@@ -35,22 +35,24 @@
 
 ```mermaid
 flowchart LR
-    subgraph Cloud_LAN["서버/마스터 (TCP/IP)"]
+    subgraph Backend["차량 외부 백엔드 (TCP/IP)"]
         S["Linux Server<br/>이미지 + 서명 보관"]
-        M["RPI Master<br/>Tester / 이미지 검증"]
     end
-    subgraph Vehicle["차량 내부"]
+    subgraph Vehicle["차량 내부 (In-Vehicle)"]
+        M["RPI Master (In-Vehicle HPC)<br/>Tester / 이미지 검증"]
         G["Gateway ECU<br/>DoIP↔CAN"]
         T1["Motion ECU"]
         T2["Lighting ECU"]
     end
     S -->|"HTTP /ota/down (image,sig)"| M
     S -.->|"MQTT push ota/update"| M
-    M -->|"DoIP UDS :13400"| G
+    M -->|"DoIP UDS :13400 (in-vehicle)"| G
     G -->|"CAN FD UDS"| T1
     G -->|"CAN FD UDS"| T2
     M -->|"HTTP /ota/report"| S
 ```
+
+> `FOTA_Master_RPI4`는 차량 내부 HPC로, 외부 백엔드(Server)와 차량 내부 진단 도메인(Gateway/ECU)의 경계에 위치한다. 배치는 프로젝트 기준(사용자 제공), 네트워크 대역 분리(`192.168.203.x` vs `192.168.1.x`)가 정황 근거.
 
 ## 4. 노드 간 역할 분리
 
@@ -87,10 +89,22 @@ flowchart LR
 
 자세한 목록은 [Open Issues](./22_open_issues.md).
 
+## 7. 최근 코드 변경 반영 사항
+
+| 변경 영역 | 반영 내용 | 코드 근거 |
+|---|---|---|
+| Target ECU application | Motion/Lighting에 STM 기반 `App_Scheduler` + 도메인 application(motor/lamp) 추가 | `Apps/App_Scheduler.c`, `Apps/accel.c`(Motion), `Apps/App_Lamp.c`(Lighting) |
+| Target main loop | cooperative loop → STM 1ms 인터럽트 scheduler | `core0_main()` diff, `Driver_Stm.c` |
+| 0x11 reset | 응답 후 `Shared_Util_Time_DelayMs(1000)` 추가 | `Dcm_HandleEcuReset()` diff |
+| 배치 포지셔닝 | RPI Master = 차량 내부 HPC로 명시(문서 명확화) | 프로젝트 배치 기준(사용자 제공) |
+
+자세한 변경 추적은 [Application Change Log](./23_application_change_log.md).
+
 ## 다음에 읽을 문서
 
 - [Repository Structure](./01_repository_structure.md)
 - [System Architecture](./02_system_architecture.md)
+- [Application Change Log](./23_application_change_log.md)
 
 ## 이 문서에서 남은 확인 필요 사항
 

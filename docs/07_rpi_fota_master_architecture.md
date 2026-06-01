@@ -16,9 +16,31 @@
 
 서버 연동(HTTP/MQTT), 이미지/서명 검증, DoIP Routing Activation, UDS 요청 생성, 이미지 chunk 전송, 응답 수신, timeout/retry, 상태머신, LCD UI.
 
+## 0. 배치(deployment) 포지셔닝
+
+`FOTA_Master_RPI4`(Raspberry Pi 4 기반)는 **차량 내부에 탑재된 High Performance Computer(In-Vehicle HPC)** 역할을 한다. 즉 외부 클라우드/백엔드가 아니라 **차량 안에서 동작하는 FOTA master 겸 DoIP tester**다.
+
+```mermaid
+flowchart LR
+    subgraph CLOUD["차량 외부 (백엔드)"]
+        SRV["FOTA_Linux_Server<br/>(192.168.203.16: HTTP/MQTT)"]
+    end
+    subgraph VEH["차량 내부 (In-Vehicle)"]
+        HPC["FOTA_Master_RPI4<br/>In-Vehicle HPC / DoIP Tester (SA 0x0E00)"]
+        GW["Ecu_Gateway_TC375_LK<br/>(192.168.1.20:13400)"]
+        ECU["Motion / Lighting ECU<br/>(CAN FD)"]
+        HPC -- "DoIP / Ethernet" --> GW
+        GW -- "CAN FD" --> ECU
+    end
+    SRV -- "HTTP/MQTT (image+sig)" --> HPC
+```
+
+- 근거(코드상 정황): 서버는 `192.168.203.x`(HTTP `:4321` / MQTT `:1883`)로 외부 백엔드, Gateway는 `192.168.1.20:13400`로 차량 내부 in-vehicle network에 위치 — `CHECK_URL`/`MQTT_ADDRESS` vs `GATEWAY_IP` in `ota_comm.cpp`. HPC가 차량 내부에 있다는 **배치 자체는 프로젝트 배치 기준(사용자 제공)**이며 코드만으로 단정되지 않음 `추정`.
+- 따라서 HPC는 외부 백엔드(서버)와 차량 내부 진단 도메인(Gateway/ECU)을 잇는 **차량 측 게이트키퍼/테스터**다. 서버=원격 이미지 저장/배포, HPC=차량 내 다운로드·검증·DoIP 진단 주체로 역할이 구분된다.
+
 ## 3. 요약
 
-RPI Master는 **DoIP Tester**다. `ota_worker_thread`가 업데이트 큐를 소비해 `executeUpdate()`로 다운로드→서명검증→설치를 수행하고, `startOtaTransfer()`가 Gateway(`192.168.1.20:13400`)에 UDS 시퀀스를 보낸다. Tester SA는 `0x0E00`.
+RPI Master는 **차량 내부 HPC이자 DoIP Tester**다. `ota_worker_thread`가 업데이트 큐를 소비해 `executeUpdate()`로 다운로드→서명검증→설치를 수행하고, `startOtaTransfer()`가 Gateway(`192.168.1.20:13400`)에 UDS 시퀀스를 보낸다. Tester SA는 `0x0E00`.
 
 ## 4. 주요 구성 요소 / 스레드
 
@@ -177,10 +199,19 @@ flowchart LR
 - Master의 CRC32(`calculateChunkCRC32`, poly 0xEDB88320)와 Target `crc32.c`의 다항식 일치 여부 `확인 필요`.
 - `0x10 02` 재시도를 "safe-state 확인"으로 사용하나, Target Dcm은 `DCM_FOTA_STATE_VERIFIED` 조건만 검사(차량 속도/기어 미확인) → 의미상 차이 `확인 필요`.
 
+## 14. 최근 문서 반영 사항
+
+| 변경 영역 | 반영 내용 | 근거 |
+|---|---|---|
+| 배치 포지셔닝 | RPI Master를 **차량 내부 High Performance Computer(In-Vehicle HPC)**로 명시 (서버=외부 백엔드, HPC=차량 측 FOTA master/DoIP tester) | 프로젝트 배치 기준(사용자 제공) + 네트워크 분리 정황(`ota_comm.cpp`) |
+
+> 이번 업데이트에서 RPI Master의 **소스 코드 변경은 없다**. 위 항목은 배치(deployment) 관점의 문서 명확화이다. App layer 변경은 Target ECU(Motion/Lighting)에 한정된다 — [Application Change Log](./23_application_change_log.md).
+
 ## 다음에 읽을 문서
 
 - [DoIP Gateway Routing](./10_doip_gateway_routing.md)
 - [FOTA Update Flow](./15_fota_update_flow.md)
+- [Application Change Log](./23_application_change_log.md)
 
 ## 이 문서에서 남은 확인 필요 사항
 

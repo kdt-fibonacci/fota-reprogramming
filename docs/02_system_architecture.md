@@ -19,6 +19,7 @@
 ## 3. 요약
 
 - 서버↔마스터는 **TCP/IP (HTTP + MQTT)**, 마스터↔게이트웨이는 **DoIP/Ethernet(:13400)**, 게이트웨이↔타깃은 **CAN FD + CanTp**.
+- **`FOTA_Master_RPI4`는 차량 내부에 탑재된 High Performance Computer(In-Vehicle HPC)**로, 외부 백엔드 서버와 차량 내부 진단 도메인(Gateway/ECU)을 잇는 차량 측 FOTA master 겸 DoIP tester다. 서버는 차량 외부 백엔드.
 - Gateway는 DoIP logical address를 내부 PDU ID로 변환하고, PduR는 PDU ID 기반으로 CanTp 경로를 선택한다.
 - Target ECU만 Dcm/FOTA/Flash를 수행한다.
 
@@ -26,24 +27,28 @@
 
 ```mermaid
 flowchart LR
-    subgraph SRV["FOTA_Linux_Server (192.168.203.16)"]
-        H["HTTP :4321 (libmicrohttpd)"]
-        Q["MQTT broker :1883"]
-        DB["Flask dashboard :5000"]
+    subgraph CLOUD["차량 외부 (백엔드)"]
+        subgraph SRV["FOTA_Linux_Server (192.168.203.16)"]
+            H["HTTP :4321 (libmicrohttpd)"]
+            Q["MQTT broker :1883"]
+            DB["Flask dashboard :5000"]
+        end
     end
-    subgraph RPI["FOTA_Master_RPI4 (DoIP Tester SA=0x0E00)"]
-        W["ota_worker_thread"]
-        E["UDS engine"]
-        L["LCD UI thread"]
+    subgraph VEH["차량 내부 (In-Vehicle)"]
+        subgraph RPI["FOTA_Master_RPI4 — In-Vehicle HPC (DoIP Tester SA=0x0E00)"]
+            W["ota_worker_thread"]
+            E["UDS engine"]
+            L["LCD UI thread"]
+        end
+        subgraph GW["Ecu_Gateway_TC375_LK (192.168.1.20)"]
+            SO["SoAd (LwIP TCP)"]
+            DP["DoIP"]
+            PR["PduR"]
+            CT["CanTp"]
+        end
+        MOT["Ecu_Motion_TC375_LK (LA 0x1234)"]
+        LIT["Ecu_Lighting_TC375_LK (LA 0x5678)"]
     end
-    subgraph GW["Ecu_Gateway_TC375_LK (192.168.1.20)"]
-        SO["SoAd (LwIP TCP)"]
-        DP["DoIP"]
-        PR["PduR"]
-        CT["CanTp"]
-    end
-    MOT["Ecu_Motion_TC375_LK (LA 0x1234)"]
-    LIT["Ecu_Lighting_TC375_LK (LA 0x5678)"]
 
     H <-->|HTTP| W
     Q -.->|push| W
@@ -53,6 +58,8 @@ flowchart LR
     CT <-->|CAN FD| MOT
     CT <-->|CAN FD| LIT
 ```
+
+> `FOTA_Master_RPI4`가 차량 내부 HPC라는 점은 프로젝트 배치 기준(사용자 제공)이다. 코드상으로는 서버(`192.168.203.x`)와 in-vehicle network(`192.168.1.x`)가 분리되어 있어 정황상 부합한다 — 자세히 [RPI FOTA Master Architecture](./07_rpi_fota_master_architecture.md).
 
 ## 5. Layered Architecture (계층 구조)
 
@@ -177,10 +184,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A["Server"] -- "TCP/IP HTTP 4321 / MQTT 1883" --> B["Master"]
-    B -- "Ethernet DoIP TCP 13400" --> C["Gateway"]
+    A["Server (차량 외부 백엔드)"] -- "TCP/IP HTTP 4321 / MQTT 1883" --> B["Master (차량 내부 HPC)"]
+    B -- "Ethernet DoIP TCP 13400 (in-vehicle)" --> C["Gateway"]
     C -- "CAN FD (Arbitration+Data BRS)" --> D["Motion/Lighting"]
 ```
+
+> 외부↔차량 경계는 Server↔Master 구간(HTTP/MQTT)이고, 그 이후(Master↔Gateway↔ECU)는 모두 차량 내부 네트워크다.
 
 ## 11. 코드 근거
 
@@ -194,7 +203,15 @@ flowchart LR
 
 ## 12. 추정 사항
 
-- 서버→마스터 이미지가 차량 외부(클라우드/LAN)에서 전달된다는 표현은 IP 대역(192.168.203.x vs 192.168.1.x)으로 추정. 실제 물리 토폴로지는 `확인 필요`.
+- 서버→마스터 이미지가 차량 외부(클라우드/백엔드)에서 전달되고 Master는 차량 내부 HPC라는 배치는 프로젝트 배치 기준(사용자 제공)에 근거하며, IP 대역(192.168.203.x vs 192.168.1.x) 분리가 이를 뒷받침. 실제 물리 토폴로지/회선(셀룰러·이더넷 등)은 `확인 필요`.
+
+## 12.1 최근 문서 반영 사항
+
+| 변경 영역 | 반영 내용 | 근거 |
+|---|---|---|
+| 배치 경계 | Server=차량 외부 백엔드 / Master=차량 내부 HPC로 context·네트워크 다이어그램에 명시 | 프로젝트 배치 기준(사용자 제공) + 네트워크 대역 분리 |
+
+> 본 변경은 시스템 토폴로지 문서 명확화이며, 코드 변경에 기인하지 않는다. 이번 코드 변경(App layer)은 Target ECU에 한정 — [Application Change Log](./23_application_change_log.md).
 
 ## 13. 확인 필요 사항
 

@@ -139,11 +139,22 @@ flowchart TD
 - reset 후 SSW가 UCB_SWAP을 평가해 ADDRCFG를 바꾸는 것은 TC375 SOTA 표준 동작에 근거한 `추정` (코드 외부 SSW 동작).
 - 자동 rollback(새 image 부팅 실패 시 watchdog) 메커니즘 `확인 필요`.
 - swap entry가 모두 소진됐을 때(`NO_FREE_SWAP_ENTRY`)의 재초기화(`ReinitSwapEntry0Standard`) 운영 정책 `확인 필요`.
+- 0x11 reset 전 `Shared_Util_Time_DelayMs(1000)` blocking 지연이 응답 송출 완료를 보장하는지(delay/CanTp 구현 의존) `확인 필요`.
+
+## 14. 최근 코드 변경 반영 사항
+
+| 변경 영역 | 반영 내용 | 코드 근거 |
+|---|---|---|
+| 0x11 → reset | positive 응답 후 `Shared_Util_Time_DelayMs(1000)` 추가 후 `FOTA_PerformSystemReset()` | `Dcm_HandleEcuReset()` diff in `Dcm.c` |
+| 부팅 버전 로그 | `[Motion/Lighting ECU] Current Version: A` 추가(부팅 후 버전 식별 용이) | `core0_main()` diff in `Cpu0_Main.c` |
+
+> swap/boot/rollback 핵심 로직(`Sota_SwapDiag`, `FotaHandler`) 자체는 이번 변경에서 수정되지 않았다. 변경은 reset **호출 직전 타이밍**에 한정된다.
 
 ## 다음에 읽을 문서
 
 - [Debugging Notes](./20_debugging_notes.md)
 - [Error Handling and Recovery](./18_error_handling_and_recovery.md)
+- [Application Change Log](./23_application_change_log.md)
 
 ## 이 문서에서 남은 확인 필요 사항
 

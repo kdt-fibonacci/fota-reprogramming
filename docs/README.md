@@ -16,17 +16,21 @@
 
 ```mermaid
 flowchart LR
-    SRV["FOTA_Linux_Server<br/>(HTTP :4321 / MQTT :1883 / Flask :5000)"]
-    RPI["FOTA_Master_RPI4<br/>(DoIP Tester, SA=0x0E00)"]
-    GW["Ecu_Gateway_TC375_LK<br/>(DoIP Entity 0x0F00, IP 192.168.1.20)"]
-    MOT["Ecu_Motion_TC375_LK<br/>(CAN Target, LA 0x1234)"]
-    LIT["Ecu_Lighting_TC375_LK<br/>(CAN Target, LA 0x5678)"]
+    SRV["FOTA_Linux_Server (차량 외부 백엔드)<br/>(HTTP :4321 / MQTT :1883 / Flask :5000)"]
+    subgraph VEH["차량 내부 (In-Vehicle)"]
+        RPI["FOTA_Master_RPI4 — In-Vehicle HPC<br/>(DoIP Tester, SA=0x0E00)"]
+        GW["Ecu_Gateway_TC375_LK<br/>(DoIP Entity 0x0F00, IP 192.168.1.20)"]
+        MOT["Ecu_Motion_TC375_LK<br/>(CAN Target, LA 0x1234, motor app)"]
+        LIT["Ecu_Lighting_TC375_LK<br/>(CAN Target, LA 0x5678, lamp app)"]
+        RPI -- "DoIP / Ethernet :13400" --> GW
+        GW -- "CAN FD 0x501/0x500" --> MOT
+        GW -- "CAN FD 0x601/0x600" --> LIT
+    end
 
     SRV -- "HTTP/MQTT (image+sig)" --> RPI
-    RPI -- "DoIP / Ethernet :13400" --> GW
-    GW -- "CAN FD 0x501/0x500" --> MOT
-    GW -- "CAN FD 0x601/0x600" --> LIT
 ```
+
+> `FOTA_Master_RPI4`는 차량 내부 High Performance Computer(In-Vehicle HPC)로, 외부 백엔드 서버와 차량 내부 진단 도메인의 경계에 위치한다(배치는 프로젝트 기준).
 
 근거:
 - 서버 주소/포트: `CHECK_URL`,`MQTT_ADDRESS` in `FOTA_Master_RPI4/ota_comm.cpp`, `start_server()` in `FOTA_Linux_Server/src/server.c`
@@ -39,7 +43,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A["Test Main (Cpu0_Main.c)"] --> D["Dcm (UDS service)"]
+    A["App_Scheduler (Cpu0_Main.c + Apps/, STM 1ms)"] --> D["Dcm (UDS service)"]
+    A --> APP["도메인 application (motor / lamp)"]
     D --> F["FOTA Handler / Sota Update Core"]
     D --> P["PduR (PDU ID routing)"]
     P --> T["CanTp (ISO-TP-like)"]
@@ -47,6 +52,8 @@ flowchart TD
     I --> C["Can Driver (MCMCAN, CAN FD)"]
     F --> FL["Flash Driver / Swap / Boot"]
 ```
+
+> Motion/Lighting의 진입점은 최근 변경으로 STM 1ms 인터럽트 기반 `App_Scheduler`이다(이전 cooperative `Test_MainFunctions()`에서 전환). Gateway는 여전히 cooperative loop. 자세히 [Application Change Log](./23_application_change_log.md), [Runtime Main Loops](./19_runtime_main_loops.md).
 
 ## 4. 전체 문서 목록
 
@@ -75,6 +82,8 @@ flowchart TD
 | 20 | [Debugging Notes](./20_debugging_notes.md) | ADS/UART/CAN 디버깅 |
 | 21 | [Requirements Traceability](./21_requirements_traceability.md) | 요구사항 추적성 |
 | 22 | [Open Issues](./22_open_issues.md) | 미확정/확인 필요 사항 |
+| 23 | [Application Change Log](./23_application_change_log.md) | 초기 위키 이후 app layer 변경 추적 |
+| 23 | [Gateway Com Stack API/Type Specification](./23_gateway_com_stack_spec.md) | Gateway ComStack enum/struct/header/function 명세 |
 
 ## 5. 역할별 추천 읽기 순서
 
@@ -91,6 +100,7 @@ flowchart TD
 3. [CanTp Transport](./12_cantp_transport.md)
 4. [PduR Routing](./13_pdur_routing.md)
 5. [DoIP Gateway Routing](./10_doip_gateway_routing.md)
+6. [Gateway Com Stack API/Type Specification](./23_gateway_com_stack_spec.md)
 
 ### FOTA를 보는 사람
 1. [FOTA Update Flow](./15_fota_update_flow.md)
@@ -103,6 +113,12 @@ flowchart TD
 2. [Runtime Main Loops](./19_runtime_main_loops.md)
 3. [Reset / Boot / Bank Swap](./17_reset_boot_bank_swap.md)
 4. [Open Issues](./22_open_issues.md)
+
+### 최근 변경을 확인하는 사람
+1. [Application Change Log](./23_application_change_log.md)
+2. [Runtime Main Loops](./19_runtime_main_loops.md)
+3. [Motion ECU Architecture](./04_motion_ecu_architecture.md)
+4. [Lighting ECU Architecture](./05_lighting_ecu_architecture.md)
 
 ### 면접 / PT 준비
 1. [Project Overview](./00_project_overview.md)
